@@ -78,36 +78,48 @@ def analyze_audio(audio_path):
     }
 
 def ask_gemini(text, alts, details):
-    # 使えるモデルを順番に試す「自動切り替え機能」
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro", "gemini-1.0-pro"]
-    
-    prompt = f"""
-    あなたは日本語音声学・日本語教育の専門家です。
-    以下のデータを分析し、教師が指導に使うための「発音診断カルテ」を作成してください。
+    # ★自動修復機能：使えるモデルをリストアップして、最初の有効なものを使う
+    try:
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        if not available_models:
+            return "❌ エラー: このAPIキーで利用可能なGeminiモデルが1つも見つかりませんでした。\nAPIキーの設定(Google Cloud Console)で「Generative Language API」が有効になっているか確認してください。"
 
-    【データ】
-    1.認識結果: {text}
-    2.揺れ(調音点ズレ示唆): {alts}
-    3.スコア: {details}
+        # 優先順位: 1.5-flash -> 1.5-pro -> gemini-pro -> その他
+        target_model = available_models[0] # とりあえず最初のもの
+        for m in available_models:
+            if "gemini-1.5-flash" in m:
+                target_model = m
+                break
+            elif "gemini-pro" in m:
+                target_model = m
+        
+        # 決定したモデルで生成
+        model = genai.GenerativeModel(target_model)
+        
+        prompt = f"""
+        あなたは日本語音声学・日本語教育の専門家です。
+        以下のデータを分析し、教師が指導に使うための「発音診断カルテ」を作成してください。
 
-    【出力項目】
-    1.総合所見(明瞭度、全体傾向)
-    2.プロソディ分析(プロミネンス、アクセント、イントネーション、拍)
-    3.分節音分析(子音の調音点、母音)
-    4.最優先指導ポイント
-    """
+        【データ】
+        1.認識結果: {text}
+        2.揺れ(調音点ズレ示唆): {alts}
+        3.スコア: {details}
 
-    last_error = ""
-    for model_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            return response.text # 成功したらここで終了
-        except Exception as e:
-            last_error = str(e)
-            continue # ダメなら次のモデルへ
+        【出力項目】
+        1.総合所見(明瞭度、全体傾向)
+        2.プロソディ分析(プロミネンス、アクセント、イントネーション、拍)
+        3.分節音分析(子音の調音点、母音)
+        4.最優先指導ポイント
+        """
+        response = model.generate_content(prompt)
+        return f"✅ 使用モデル: {target_model}\n\n" + response.text
 
-    return f"❌ すべてのAIモデルでエラーが発生しました。\n最後の詳細: {last_error}"
+    except Exception as e:
+        return f"❌ 予期せぬエラー: {e}"
 
 # --- メイン画面 ---
 st.info("👇 ここに学習者の音声ファイルを置いてください")
