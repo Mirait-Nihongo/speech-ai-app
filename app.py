@@ -77,8 +77,8 @@ def analyze_audio(audio_path):
         "details": ", ".join([f"{w.word}({int(w.confidence*100)})" for w in alt.words])
     }
 
-def ask_gemini(text, alts, details):
-    # 自動修復機能：使えるモデルをリストアップして、最初の有効なものを使う
+def ask_gemini(student_name, text, alts, details):
+    # 自動修復機能
     try:
         available_models = []
         for m in genai.list_models():
@@ -99,9 +99,20 @@ def ask_gemini(text, alts, details):
         
         model = genai.GenerativeModel(target_model)
         
+        # --- ★ここが変更点: 名前の有無で指示を変える ---
+        if student_name:
+            # 名前がある場合
+            name_instruction = f"学習者名は「{student_name}」です。レポートの冒頭を「{student_name}さんの発音診断カルテ」とし、文中でも必要に応じて名前で呼んでください。"
+        else:
+            # 名前がない（空欄）の場合
+            name_instruction = "学習者名は不明です。レポートの冒頭は単に「発音診断カルテ」とし、特定の個人名を出さずに作成してください。"
+
         prompt = f"""
         あなたは日本語音声学・日本語教育の専門家です。
-        以下のデータを分析し、教師が指導に使うための「発音診断カルテ」を作成してください。
+        以下のデータを分析し、担当教師が指導に使うための「発音診断カルテ」を作成してください。
+
+        【指示】
+        {name_instruction}
 
         【データ】
         1.認識結果: {text}
@@ -121,24 +132,26 @@ def ask_gemini(text, alts, details):
         return f"❌ 予期せぬエラー: {e}"
 
 # --- メイン画面 ---
-st.info("👇 学習者の音声を入力してください")
+st.info("👇 学習者の情報を入力してください")
 
-# ★ここが変更点：タブで切り替え
+# ★追加：氏名入力欄（未入力OK）
+student_name = st.text_input("学習者氏名（任意）", placeholder="入力がない場合は「氏名なし」として処理されます")
+
+# タブ切り替え
 tab1, tab2 = st.tabs(["📁 ファイルをアップロード", "🎙️ その場で録音する"])
 
-target_audio = None # 最終的に分析する音声データ
+target_audio = None 
 
 with tab1:
     uploaded_file = st.file_uploader("音声ファイルを選択 (mp3, wav, m4a)", type=["mp3", "wav", "m4a"])
     if uploaded_file:
-        st.audio(uploaded_file) # 再生プレイヤー
+        st.audio(uploaded_file)
         target_audio = uploaded_file
 
 with tab2:
     st.write("ボタンを押して話し、終わったら停止ボタンを押してください。")
     recorded_audio = st.audio_input("録音開始")
     if recorded_audio:
-        # 録音された場合、自動的にプレイヤーも表示されます
         target_audio = recorded_audio
 
 # --- 分析ボタン ---
@@ -163,9 +176,14 @@ if st.button("🚀 専門分析を開始する", type="primary"):
                     st.write(f"別候補: {res['alts']}")
 
                 st.markdown("---")
-                st.subheader("📝 教師用 発音診断カルテ")
                 
-                report = ask_gemini(res["main_text"], res["alts"], res["details"])
+                # ★修正：画面上のタイトルも名前の有無で分岐
+                if student_name:
+                    st.subheader(f"📝 {student_name}さんの発音診断カルテ")
+                else:
+                    st.subheader("📝 発音診断カルテ")
+                
+                report = ask_gemini(student_name, res["main_text"], res["alts"], res["details"])
                 st.markdown(report)
             
             if os.path.exists(tmp_audio_path): os.remove(tmp_audio_path)
