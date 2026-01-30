@@ -2,3 +2,4 @@ streamlit
 google-cloud-speech
 google-auth
 requests
+google-generativeai
