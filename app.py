@@ -9,10 +9,7 @@ from google.oauth2 import service_account
 # --- 設定 ---
 st.set_page_config(page_title="日本語発音 指導補助ツール", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語発音 指導補助ツール")
-st.markdown("""
-学習者の音声をアップロードしてください。
-教師向けに**プロミネンス・調音点・アクセント・拍**などを網羅した詳細な分析レポートを作成します。
-""")
+st.markdown("教師向け：プロミネンス・調音点・アクセント・拍の詳細分析")
 
 # --- 認証情報の読み込み ---
 try:
@@ -26,7 +23,7 @@ try:
         f.write(google_json_str)
     json_path = "google_key.json"
 except Exception as e:
-    st.error("⚠️ 設定エラー: Secretsが設定されていません。")
+    st.error("⚠️ 設定エラー: Secretsの設定を確認してください。")
     st.stop()
 
 # --- 関数群 ---
@@ -40,6 +37,7 @@ def analyze_audio(audio_path):
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_converted:
         converted_path = tmp_converted.name
     
+    # 音声変換 (ffmpeg)
     cmd = f'ffmpeg -y -i "{audio_path}" -ac 1 -ar 16000 -ab 32k "{converted_path}" -loglevel panic'
     exit_code = os.system(cmd)
     
@@ -80,47 +78,36 @@ def analyze_audio(audio_path):
     }
 
 def ask_gemini(text, alts, details):
-    # ★公式ライブラリを使用（接続が安定します）
-    # モデル名は最新の gemini-1.5-flash を使用
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        
-        prompt = f"""
-        あなたは日本語音声学・日本語教育の専門家です。
-        以下のデータを分析し、教師が指導に使うための専門的な「発音診断カルテ」を作成してください。
+    # 使えるモデルを順番に試す「自動切り替え機能」
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro", "gemini-1.0-pro"]
+    
+    prompt = f"""
+    あなたは日本語音声学・日本語教育の専門家です。
+    以下のデータを分析し、教師が指導に使うための「発音診断カルテ」を作成してください。
 
-        【分析用データ】
-        1. **認識結果**: {text}
-        2. **認識の揺れ (調音点のズレ示唆)**: {alts}
-        3. **信頼度スコア (アクセント・不明瞭箇所)**: {details}
+    【データ】
+    1.認識結果: {text}
+    2.揺れ(調音点ズレ示唆): {alts}
+    3.スコア: {details}
 
-        【指示】
-        学習者へのメッセージではなく、**教師への分析報告**として出力してください。
+    【出力項目】
+    1.総合所見(明瞭度、全体傾向)
+    2.プロソディ分析(プロミネンス、アクセント、イントネーション、拍)
+    3.分節音分析(子音の調音点、母音)
+    4.最優先指導ポイント
+    """
 
-        【出力フォーマット】
-        ### 1. 総合所見
-        * **推定明瞭度**: （100点満点）
-        * **全体傾向**: （発話速度、ポーズなど）
+    last_error = ""
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            return response.text # 成功したらここで終了
+        except Exception as e:
+            last_error = str(e)
+            continue # ダメなら次のモデルへ
 
-        ### 2. プロソディ分析
-        * **プロミネンス (卓立)**: 焦点の置き方、助詞の強調など。
-        * **アクセント (ピッチ)**: 平板化、起伏型の誤用。
-        * **イントネーション (抑揚)**: 文末、フレーズの曲線。
-        * **拍の感覚 (モーラ)**: 特殊拍の長さ、リズム。
-
-        ### 3. 分節音分析
-        * **子音の調音点**: 認識の揺れから推測される誤り（ザ行、サ行、ラ行など）。
-        * **母音**: 無声化、広狭の明瞭さ。
-
-        ### 4. 指導の優先順位
-        * （最優先の矯正ポイントと、具体的な指導法）
-        """
-        
-        response = model.generate_content(prompt)
-        return response.text
-        
-    except Exception as e:
-        return f"AI生成エラー: {e}"
+    return f"❌ すべてのAIモデルでエラーが発生しました。\n最後の詳細: {last_error}"
 
 # --- メイン画面 ---
 st.info("👇 ここに学習者の音声ファイルを置いてください")
@@ -139,15 +126,12 @@ if st.button("🚀 専門分析を開始する", type="primary"):
                 st.error(res["error"])
             else:
                 st.success("解析完了")
-                
                 st.subheader("🗣️ 音声認識データ")
                 st.code(res["main_text"], language=None)
                 
                 with st.expander("🔍 分析用生データ (教師用)"):
-                    st.write("**信頼度スコア**")
-                    st.text(res['details'])
-                    st.write("**認識候補の揺れ**")
-                    st.text(res['alts'])
+                    st.write(f"信頼度: {res['details']}")
+                    st.write(f"別候補: {res['alts']}")
 
                 st.markdown("---")
                 st.subheader("📝 教師用 発音診断カルテ")
