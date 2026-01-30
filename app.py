@@ -29,14 +29,12 @@ except Exception as e:
 
 # --- 関数群 ---
 def analyze_audio(audio_path):
-    # 認証とクライアント作成
     try:
         credentials = service_account.Credentials.from_service_account_file(json_path)
         client = speech.SpeechClient(credentials=credentials)
     except Exception as e:
         return {"error": f"認証エラー: {e}"}
 
-    # 音声変換 (ffmpeg)
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_converted:
         converted_path = tmp_converted.name
     
@@ -46,19 +44,17 @@ def analyze_audio(audio_path):
     if exit_code != 0:
         return {"error": "音声変換エラー"}
 
-    # STT実行
     with io.open(converted_path, "rb") as f:
         content = f.read()
     
     try:
         audio = speech.RecognitionAudio(content=content)
-        # 詳細な分析のために信頼度と別候補を取得
         config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.ENCODING_UNSPECIFIED,
             sample_rate_hertz=16000,
             language_code="ja-JP",
             enable_automatic_punctuation=False,
-            max_alternatives=5, # 誤読の傾向を探るため候補を増やす
+            max_alternatives=5, 
             enable_word_confidence=True
         )
         operation = client.long_running_recognize(config=config, audio=audio)
@@ -73,8 +69,6 @@ def analyze_audio(audio_path):
 
     result = response.results[0]
     alt = result.alternatives[0]
-    
-    # 全ての候補を取得（調音点の分析に使用）
     all_candidates = [a.transcript for a in result.alternatives]
     
     return {
@@ -84,10 +78,11 @@ def analyze_audio(audio_path):
     }
 
 def ask_gemini(text, alts, details):
-    MODEL_NAME = "gemini-1.5-flash"
+    # ★修正箇所: モデル名を変更して404回避
+    # もしこれでも404が出る場合は "gemini-pro" を試してください
+    MODEL_NAME = "gemini-1.5-pro" 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={gemini_api_key}"
     
-    # --- ★ここが大幅強化ポイント：プロミネンス・調音点を含めたプロンプト ---
     prompt = f"""
     あなたは日本語音声学・日本語教育の専門家です。
     Google Speech-to-Textの認識結果データを分析し、教師が指導に使うための専門的な「発音診断カルテ」を作成してください。
@@ -136,9 +131,10 @@ def ask_gemini(text, alts, details):
         if res.status_code == 200:
             return res.json()['candidates'][0]['content']['parts'][0]['text']
         else:
-            return f"AI生成エラー: {res.status_code}"
-    except:
-        return "通信エラー"
+            # エラーの詳細を画面に出すように変更
+            return f"AI生成エラー: {res.status_code}\n詳細: {res.text}"
+    except Exception as e:
+        return f"通信エラー: {e}"
 
 # --- メイン画面 ---
 st.info("👇 ここに学習者の音声ファイルを置いてください")
@@ -162,9 +158,9 @@ if st.button("🚀 専門分析を開始する", type="primary"):
                 st.code(res["main_text"], language=None)
                 
                 with st.expander("🔍 分析用生データ (教師用)"):
-                    st.write("**信頼度スコア (低いほど発音が不明瞭)**")
+                    st.write("**信頼度スコア**")
                     st.text(res['details'])
-                    st.write("**認識候補の揺れ (調音点のズレを示唆)**")
+                    st.write("**認識候補の揺れ**")
                     st.text(res['alts'])
 
                 st.markdown("---")
