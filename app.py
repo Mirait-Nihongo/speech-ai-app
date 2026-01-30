@@ -72,38 +72,3 @@ def analyze_audio(audio_path):
     all_candidates = [a.transcript for a in result.alternatives]
     
     return {
-        "main_text": alt.transcript,
-        "alts": ", ".join(all_candidates),
-        "details": ", ".join([f"{w.word}({int(w.confidence*100)})" for w in alt.words])
-    }
-
-def ask_gemini(text, alts, details):
-    # ★修正: 1.5系ではなく、最も安定した標準モデル "gemini-pro" を指定
-    MODEL_NAME = "gemini-pro"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={gemini_api_key}"
-    
-    prompt = f"""
-    あなたは日本語音声学・日本語教育の専門家です。
-    Google Speech-to-Textの認識結果データを分析し、教師が指導に使うための専門的な「発音診断カルテ」を作成してください。
-
-    【分析用データ】
-    1. **認識結果 (Transcript)**: {text}
-    2. **認識の揺れ (Alternatives)**: {alts}
-       ※ここに現れる「誤認識された語」は、調音点のズレ（例:「シ」が「ス」に聞こえるなど）を示唆している可能性があります。
-    3. **信頼度スコア (Confidence)**: {details}
-       ※スコアが低い箇所は、アクセントやプロミネンスが不自然だった可能性があります。
-
-    【指示】
-    学習者へのメッセージではなく、**教師への分析報告**として出力してください。
-    以下の5つの観点について、具体的かつ専門的に記述してください。
-
-    【出力フォーマット】
-    ### 1. 総合所見
-    * **推定明瞭度**: （100点満点）
-    * **全体傾向**: （発話速度、ポーズの不自然さなど）
-
-    ### 2. プロソディ分析
-    * **プロミネンス (卓立)**: 
-        * 意味的な焦点（Focus）が適切な語に置かれているか。強調すべきでない助詞などが強くなっていないか。
-    * **アクセント (ピッチ)**: 
-        * 語彙の
