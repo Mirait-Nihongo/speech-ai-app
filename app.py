@@ -1,9 +1,8 @@
 import streamlit as st
 import os
 import io
-import json
-import requests
 import tempfile
+import google.generativeai as genai
 from google.cloud import speech
 from google.oauth2 import service_account
 
@@ -19,6 +18,9 @@ st.markdown("""
 try:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
     google_json_str = st.secrets["GOOGLE_JSON"]
+    
+    # 公式ライブラリの設定
+    genai.configure(api_key=gemini_api_key)
     
     with open("google_key.json", "w") as f:
         f.write(google_json_str)
@@ -78,61 +80,47 @@ def analyze_audio(audio_path):
     }
 
 def ask_gemini(text, alts, details):
-    # ★エラー回避のため、最も安定している標準モデルを指定
-    MODEL_NAME = "gemini-pro"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={gemini_api_key}"
-    
-    prompt = f"""
-    あなたは日本語音声学・日本語教育の専門家です。
-    Google Speech-to-Textの認識結果データを分析し、教師が指導に使うための専門的な「発音診断カルテ」を作成してください。
-
-    【分析用データ】
-    1. **認識結果 (Transcript)**: {text}
-    2. **認識の揺れ (Alternatives)**: {alts}
-       ※ここに現れる「誤認識された語」は、調音点のズレ（例:「シ」が「ス」に聞こえるなど）を示唆している可能性があります。
-    3. **信頼度スコア (Confidence)**: {details}
-       ※スコアが低い箇所は、アクセントやプロミネンスが不自然だった可能性があります。
-
-    【指示】
-    学習者へのメッセージではなく、**教師への分析報告**として出力してください。
-    以下の5つの観点について、具体的かつ専門的に記述してください。
-
-    【出力フォーマット】
-    ### 1. 総合所見
-    * **推定明瞭度**: （100点満点）
-    * **全体傾向**: （発話速度、ポーズの不自然さなど）
-
-    ### 2. プロソディ分析
-    * **プロミネンス (卓立)**: 
-        * 意味的な焦点（Focus）が適切な語に置かれているか。強調すべきでない助詞などが強くなっていないか。
-    * **アクセント (ピッチ)**: 
-        * 語彙の平板化、または起伏型の誤用。
-    * **イントネーション (抑揚)**: 
-        * 文末の上がり下がり、フレーズごとの自然な音調曲線について。
-    * **拍の感覚 (モーラ・フット)**: 
-        * 長音・促音・撥音の長さ不足や過剰。リズムの等時性について。
-
-    ### 3. 分節音分析 (重要)
-    * **子音の調音点 (構音)**: 
-        * 「認識の揺れ(Alternatives)」のデータから推測される誤り。
-        * 例: ザ行の破擦音化不足、サ行/シャ行の混同、ラ行の弾き音の強さなど。
-    * **母音の無声化・広狭**: 
-        * 母音が不明瞭になっている箇所、または無声化すべき箇所が有声化している可能性。
-
-    ### 4. 指導の優先順位
-    * （今回最優先で矯正すべきポイントを1つ選び、具体的な指導法（ミニマルペア練習、シャドーイングなど）を提案）
-    """
-    
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
-    
+    # ★公式ライブラリを使用（接続が安定します）
+    # モデル名は最新の gemini-1.5-flash を使用
     try:
-        res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data))
-        if res.status_code == 200:
-            return res.json()['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return f"AI生成エラー: {res.status_code}\\n詳細: {res.text}"
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        prompt = f"""
+        あなたは日本語音声学・日本語教育の専門家です。
+        以下のデータを分析し、教師が指導に使うための専門的な「発音診断カルテ」を作成してください。
+
+        【分析用データ】
+        1. **認識結果**: {text}
+        2. **認識の揺れ (調音点のズレ示唆)**: {alts}
+        3. **信頼度スコア (アクセント・不明瞭箇所)**: {details}
+
+        【指示】
+        学習者へのメッセージではなく、**教師への分析報告**として出力してください。
+
+        【出力フォーマット】
+        ### 1. 総合所見
+        * **推定明瞭度**: （100点満点）
+        * **全体傾向**: （発話速度、ポーズなど）
+
+        ### 2. プロソディ分析
+        * **プロミネンス (卓立)**: 焦点の置き方、助詞の強調など。
+        * **アクセント (ピッチ)**: 平板化、起伏型の誤用。
+        * **イントネーション (抑揚)**: 文末、フレーズの曲線。
+        * **拍の感覚 (モーラ)**: 特殊拍の長さ、リズム。
+
+        ### 3. 分節音分析
+        * **子音の調音点**: 認識の揺れから推測される誤り（ザ行、サ行、ラ行など）。
+        * **母音**: 無声化、広狭の明瞭さ。
+
+        ### 4. 指導の優先順位
+        * （最優先の矯正ポイントと、具体的な指導法）
+        """
+        
+        response = model.generate_content(prompt)
+        return response.text
+        
     except Exception as e:
-        return f"通信エラー: {e}"
+        return f"AI生成エラー: {e}"
 
 # --- メイン画面 ---
 st.info("👇 ここに学習者の音声ファイルを置いてください")
