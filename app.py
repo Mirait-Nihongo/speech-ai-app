@@ -78,7 +78,7 @@ def analyze_audio(audio_path):
     }
 
 def ask_gemini(text, alts, details):
-    # ★自動修復機能：使えるモデルをリストアップして、最初の有効なものを使う
+    # 自動修復機能：使えるモデルをリストアップして、最初の有効なものを使う
     try:
         available_models = []
         for m in genai.list_models():
@@ -86,10 +86,10 @@ def ask_gemini(text, alts, details):
                 available_models.append(m.name)
         
         if not available_models:
-            return "❌ エラー: このAPIキーで利用可能なGeminiモデルが1つも見つかりませんでした。\nAPIキーの設定(Google Cloud Console)で「Generative Language API」が有効になっているか確認してください。"
+            return "❌ エラー: 利用可能なGeminiモデルが見つかりません。"
 
-        # 優先順位: 1.5-flash -> 1.5-pro -> gemini-pro -> その他
-        target_model = available_models[0] # とりあえず最初のもの
+        # 優先順位: 1.5-flash -> 1.5-pro -> gemini-pro
+        target_model = available_models[0]
         for m in available_models:
             if "gemini-1.5-flash" in m:
                 target_model = m
@@ -97,7 +97,6 @@ def ask_gemini(text, alts, details):
             elif "gemini-pro" in m:
                 target_model = m
         
-        # 決定したモデルで生成
         model = genai.GenerativeModel(target_model)
         
         prompt = f"""
@@ -122,14 +121,32 @@ def ask_gemini(text, alts, details):
         return f"❌ 予期せぬエラー: {e}"
 
 # --- メイン画面 ---
-st.info("👇 ここに学習者の音声ファイルを置いてください")
-uploaded_file = st.file_uploader("", type=["mp3", "wav", "m4a"])
+st.info("👇 学習者の音声を入力してください")
 
-if st.button("🚀 専門分析を開始する", type="primary"):
+# ★ここが変更点：タブで切り替え
+tab1, tab2 = st.tabs(["📁 ファイルをアップロード", "🎙️ その場で録音する"])
+
+target_audio = None # 最終的に分析する音声データ
+
+with tab1:
+    uploaded_file = st.file_uploader("音声ファイルを選択 (mp3, wav, m4a)", type=["mp3", "wav", "m4a"])
     if uploaded_file:
+        st.audio(uploaded_file) # 再生プレイヤー
+        target_audio = uploaded_file
+
+with tab2:
+    st.write("ボタンを押して話し、終わったら停止ボタンを押してください。")
+    recorded_audio = st.audio_input("録音開始")
+    if recorded_audio:
+        # 録音された場合、自動的にプレイヤーも表示されます
+        target_audio = recorded_audio
+
+# --- 分析ボタン ---
+if st.button("🚀 専門分析を開始する", type="primary"):
+    if target_audio:
         with st.spinner('🎧 音声学的特徴を抽出中...'):
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio:
-                tmp_audio.write(uploaded_file.getvalue())
+                tmp_audio.write(target_audio.getvalue())
                 tmp_audio_path = tmp_audio.name
             
             res = analyze_audio(tmp_audio_path)
@@ -153,4 +170,4 @@ if st.button("🚀 専門分析を開始する", type="primary"):
             
             if os.path.exists(tmp_audio_path): os.remove(tmp_audio_path)
     else:
-        st.warning("ファイルをアップロードしてください")
+        st.warning("音声ファイルを選択するか、録音してください。")
