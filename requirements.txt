@@ -2,8 +2,4 @@ streamlit>=1.40.0
 google-cloud-speech
 google-auth
 requests
-google-generativeai>=0.8.3streamlit
-google-cloud-speech
-google-auth
-requests
-google-generativeai
+google-generativeai>=0.8.3
