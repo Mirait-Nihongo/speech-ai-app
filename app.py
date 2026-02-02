@@ -1,58 +1,127 @@
-import streamlit as st
 import os
-import time
+import io
 import tempfile
 import datetime
-import base64  # ★追加: 音声データをHTMLに埋め込むために必要
 import google.generativeai as genai
 from google.cloud import speech
 from google.oauth2 import service_account
-import gspread
+@@ -16,7 +17,6 @@
+gemini_api_key = st.secrets["GEMINI_API_KEY"]
+google_json_str = st.secrets["GOOGLE_JSON"]
 
-# --- ページ設定 ---
-st.set_page_config(page_title="日本語会話試験システム", page_icon="🏫", layout="wide")
+    # 公式ライブラリの設定
+genai.configure(api_key=gemini_api_key)
 
-# --- 定数・初期設定 ---
-MATERIALS_DIR = "materials"
-OPI_PHASES = {
-    "warmup": "導入 (Warm-up)",
-    "level_check": "レベルチェック",
-    "probe": "突き上げ (Probe)",
-    "wind_down": "終結 (Wind-down)"
+with open("google_key.json", "w") as f:
+@@ -37,7 +37,6 @@ def analyze_audio(audio_path):
+with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_converted:
+converted_path = tmp_converted.name
+
+    # 音声変換 (ffmpeg)
+cmd = f'ffmpeg -y -i "{audio_path}" -ac 1 -ar 16000 -ab 32k "{converted_path}" -loglevel panic'
+exit_code = os.system(cmd)
+
+@@ -78,7 +77,6 @@ def analyze_audio(audio_path):
 }
-PHASE_ORDER = ["warmup", "level_check", "level_check", "probe", "wind_down"]
 
-# 管理者パスワード (Secretsになければデフォルト 'admin')
-ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin")
+def ask_gemini(student_name, text, alts, details):
+    # 自動修復機能
+try:
+available_models = []
+for m in genai.list_models():
+@@ -88,7 +86,6 @@ def ask_gemini(student_name, text, alts, details):
+if not available_models:
+return "❌ エラー: 利用可能なGeminiモデルが見つかりません。"
 
-# --- 認証関係 ---
-def get_gcp_credentials():
-    if "gcp_service_account" in st.secrets:
-        return service_account.Credentials.from_service_account_info(st.secrets["gcp_service_account"])
-    return None
+        # 優先順位: 1.5-flash -> 1.5-pro -> gemini-pro
+target_model = available_models[0]
+for m in available_models:
+if "gemini-1.5-flash" in m:
+@@ -99,12 +96,9 @@ def ask_gemini(student_name, text, alts, details):
 
-def configure_gemini():
-    if "GEMINI_API_KEY" in st.secrets:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        return True
-    return False
+model = genai.GenerativeModel(target_model)
 
-# --- ★追加機能: 画面下に固定されるオーディオプレーヤー ---
-def get_sticky_audio_player(audio_bytes):
-    """音声データをBase64に変換して、画面下に固定されるHTMLプレーヤーを作る"""
-    b64 = base64.b64encode(audio_bytes).decode()
-    md = f"""
-        <style>
-            .sticky-audio {{
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                background-color: #f0f2f6;
-                padding: 10px 20px;
-                z-index: 99999;
-                border-top: 1px solid #ccc;
-                text-align: center;
-                box-shadow: 0px -2px 10px rgba(0,0,0,0.1);
-            }}
-            /* 再生バーが被
+        # --- ★ここが変更点: 名前の有無で指示を変える ---
+if student_name:
+            # 名前がある場合
+name_instruction = f"学習者名は「{student_name}」です。レポートの冒頭を「{student_name}さんの発音診断カルテ」とし、文中でも必要に応じて名前で呼んでください。"
+else:
+            # 名前がない（空欄）の場合
+name_instruction = "学習者名は不明です。レポートの冒頭は単に「発音診断カルテ」とし、特定の個人名を出さずに作成してください。"
+
+prompt = f"""
+@@ -126,18 +120,16 @@ def ask_gemini(student_name, text, alts, details):
+       4.最優先指導ポイント
+       """
+response = model.generate_content(prompt)
+        return f"✅ 使用モデル: {target_model}\n\n" + response.text
+        return response.text
+
+except Exception as e:
+return f"❌ 予期せぬエラー: {e}"
+
+# --- メイン画面 ---
+st.info("👇 学習者の情報を入力してください")
+
+# ★追加：氏名入力欄（未入力OK）
+student_name = st.text_input("学習者氏名（任意）", placeholder="入力がない場合は「氏名なし」として処理されます")
+
+# タブ切り替え
+tab1, tab2 = st.tabs(["📁 ファイルをアップロード", "🎙️ その場で録音する"])
+
+target_audio = None 
+@@ -177,15 +169,50 @@ def ask_gemini(student_name, text, alts, details):
+
+st.markdown("---")
+
+                # ★修正：画面上のタイトルも名前の有無で分岐
+if student_name:
+st.subheader(f"📝 {student_name}さんの発音診断カルテ")
+else:
+st.subheader("📝 発音診断カルテ")
+
+                report = ask_gemini(student_name, res["main_text"], res["alts"], res["details"])
+                st.markdown(report)
+            
+                # レポート生成
+                report_content = ask_gemini(student_name, res["main_text"], res["alts"], res["details"])
+                st.markdown(report_content)
+                
+                # --- ★追加機能: ダウンロード用テキスト作成 ---
+                today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+                safe_name = student_name if student_name else "student"
+                
+                # テキストファイルの中身を作成
+                download_text = f"""================================
+日本語発音診断レポート
+================================
+■ 実施日: {today_str}
+■ 学習者名: {safe_name}
+
+【音声認識結果】
+{res['main_text']}
+
+【詳細スコア (信頼度)】
+{res['details']}
+
+【認識候補の揺れ】
+{res['alts']}
+
+--------------------------------
+【AI講師による診断カルテ】
+--------------------------------
+{report_content}
+"""
+                # ファイル名: 例「ラオ・ミン_2023-10-25_report.txt」
+                file_name = f"{safe_name}_{today_str}_report.txt"
+
+                st.download_button(
+                    label="📥 診断結果をテキストで保存",
+                    data=download_text,
+                    file_name=file_name,
+                    mime="text/plain"
+                )
+
+if os.path.exists(tmp_audio_path): os.remove(tmp_audio_path)
+else:
+st.warning("音声ファイルを選択するか、録音してください。")
