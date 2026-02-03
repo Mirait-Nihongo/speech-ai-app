@@ -9,9 +9,9 @@ from google.cloud import speech
 from google.oauth2 import service_account
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語発音 指導補助ツール v2", page_icon="👨‍🏫", layout="centered")
-st.title("👨‍🏫 日本語発音 指導補助ツール v2") # ★タイトルを変えました（更新確認用）
-st.markdown("教師向け：対照言語学に基づく発音診断・誤用分析")
+st.set_page_config(page_title="日本語発音 指導補助ツール v2.2", page_icon="👨‍🏫", layout="centered")
+st.title("👨‍🏫 日本語発音 指導補助ツール")
+st.markdown("教師向け：対照言語学に基づく発音評価・誤用分析")
 
 # --- 認証情報の読み込み ---
 try:
@@ -52,7 +52,7 @@ def get_sticky_audio_player(audio_bytes):
         </style>
         <div class="sticky-audio">
             <div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">
-                🔊 録音データ再生（診断カルテを見ながら聞いてください）
+                🔊 録音データ再生（評価を見ながら聞いてください）
             </div>
             <audio controls src="data:audio/mp3;base64,{b64}" style="width: 100%; max-width: 600px;"></audio>
         </div>
@@ -143,9 +143,10 @@ def ask_gemini(student_name, nationality, text, alts, details):
         else:
             nat_instruction = "母語情報は不明です。一般的な誤用分析を行ってください。"
 
+        # ★ここを「発音評価」に変更しました
         prompt = f"""
         あなたは日本語音声学・対照言語学・日本語教育の高度な専門家です。
-        以下の音声認識データに基づき、教師が指導に活用するための詳細な「発音診断カルテ」を作成してください。
+        以下の音声認識データに基づき、教師が指導に活用するための詳細な「発音評価」を作成してください。
 
         【基本情報】
         {name_part}
@@ -192,7 +193,6 @@ def ask_gemini(student_name, nationality, text, alts, details):
 # --- メイン画面 ---
 st.info("👇 学習者の情報を入力してください")
 
-# ★★★ ここが入力欄を2つにするコードです ★★★
 col1, col2 = st.columns(2)
 
 with col1:
@@ -200,7 +200,6 @@ with col1:
 
 with col2:
     nationality = st.text_input("母語・国籍 (分析に必須)", placeholder="例: ベトナム語、中国語、英語")
-# ★★★★★★★★★★★★★★★★★★★★★★★
 
 tab1, tab2 = st.tabs(["📁 ファイルをアップロード", "🎙️ その場で録音する"])
 
@@ -219,9 +218,10 @@ with tab2:
         target_audio = recorded_audio
 
 # --- 分析ボタン ---
-if st.button("🚀 専門分析を開始する", type="primary"):
+# ★ここを「発音評価を開始する」に変更しました
+if st.button("🚀 発音評価を開始する", type="primary"):
     if target_audio:
-        with st.spinner('🎧 対照言語学的分析を実行中...'):
+        with st.spinner('🎧 分析実行中...'):
             audio_bytes = target_audio.getvalue()
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio:
@@ -251,7 +251,9 @@ if st.button("🚀 専門分析を開始する", type="primary"):
                 
                 title_suffix = f" ({nationality})" if nationality else ""
                 name_display = student_name if student_name else "学習者"
-                st.subheader(f"📝 {name_display}さんの発音診断カルテ{title_suffix}")
+                
+                # ★ここを「発音評価」に変更しました
+                st.subheader(f"📝 {name_display}さんの発音評価{title_suffix}")
                 
                 report_content = ask_gemini(student_name, nationality, res["main_text"], res["alts"], res["details"])
                 st.markdown(report_content)
@@ -260,8 +262,9 @@ if st.button("🚀 専門分析を開始する", type="primary"):
                 safe_name = student_name if student_name else "student"
                 safe_nat = nationality if nationality else "unknown"
                 
+                # ★ダウンロードテキスト内の言葉も「発音評価」に変更しました
                 download_text = f"""================================
-日本語発音診断レポート
+日本語発音評価レポート
 ================================
 ■ 実施日: {today_str}
 ■ 学習者: {safe_name}
@@ -278,14 +281,14 @@ if st.button("🚀 専門分析を開始する", type="primary"):
 {res['alts']}
 
 --------------------------------
-【AI講師による詳細診断（5つの観点）】
+【AI講師による詳細評価（5つの観点）】
 --------------------------------
 {report_content}
 """
                 file_name = f"{safe_name}_{today_str}_report.txt"
 
                 st.download_button(
-                    label="📥 診断結果をテキストで保存",
+                    label="📥 評価結果をテキストで保存",
                     data=download_text,
                     file_name=file_name,
                     mime="text/plain"
