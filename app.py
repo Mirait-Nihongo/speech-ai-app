@@ -285,4 +285,27 @@ if st.button("🚀 音声評価を開始する", type="primary"):
 【音声認識結果】
 {res['main_text']}
 
-【詳細スコア (信頼度
+【詳細スコア (信頼度)】
+※80点未満は ⚠️ マーク付き
+{res['details']}
+
+【認識候補の揺れ】
+{res['alts']}
+
+--------------------------------
+【AI講師による音声評価】
+--------------------------------
+{report_content}
+"""
+                file_name = f"{safe_name}_{today_str}_report.txt"
+
+                st.download_button(
+                    label="📥 評価結果をテキストで保存",
+                    data=download_text,
+                    file_name=file_name,
+                    mime="text/plain"
+                )
+
+            if os.path.exists(tmp_audio_path): os.remove(tmp_audio_path)
+    else:
+        st.warning("音声ファイルを選択するか、録音してください。")
