@@ -9,9 +9,9 @@ from google.cloud import speech
 from google.oauth2 import service_account
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v2.5", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v3.0", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
-st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析")
+st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画対応版）")
 
 # --- 認証情報の読み込み ---
 try:
@@ -59,22 +59,28 @@ def get_sticky_audio_player(audio_bytes):
     """
     return md
 
-def analyze_audio(audio_path):
+def analyze_audio(source_path):
+    """
+    音声または動画ファイルを受け取り、MP3に変換して認識・分析を行う
+    """
     try:
         credentials = service_account.Credentials.from_service_account_file(json_path)
         client = speech.SpeechClient(credentials=credentials)
     except Exception as e:
         return {"error": f"認証エラー: {e}"}
 
+    # 変換用の一時ファイルパス
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_converted:
         converted_path = tmp_converted.name
     
-    cmd = f'ffmpeg -y -i "{audio_path}" -ac 1 -ar 16000 -ab 32k "{converted_path}" -loglevel panic'
+    # ffmpegで入力ファイル(動画/音声)を強制的に 16kHz モノラル MP3 に変換
+    cmd = f'ffmpeg -y -i "{source_path}" -ac 1 -ar 16000 -ab 32k "{converted_path}" -loglevel panic'
     exit_code = os.system(cmd)
     
     if exit_code != 0:
-        return {"error": "音声変換エラー"}
+        return {"error": "ファイル変換エラー（対応していない形式の可能性があります）"}
 
+    # 変換されたMP3データを読み込む
     with io.open(converted_path, "rb") as f:
         content = f.read()
     
@@ -93,6 +99,8 @@ def analyze_audio(audio_path):
     except Exception as e:
         return {"error": f"認識エラー: {e}"}
     finally:
+        # 変換済みファイルはここで削除せず、戻り値に含めるか呼び出し元で管理する
+        # 今回はcontentを返すので削除してOK
         if os.path.exists(converted_path): os.remove(converted_path)
 
     if not response.results:
@@ -113,7 +121,8 @@ def analyze_audio(audio_path):
     return {
         "main_text": alt.transcript,
         "alts": ", ".join(all_candidates),
-        "details": formatted_details
+        "details": formatted_details,
+        "audio_content": content # ★変換後のMP3データを返す（プレーヤー用）
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
@@ -143,7 +152,6 @@ def ask_gemini(student_name, nationality, text, alts, details):
         else:
             nat_instruction = "母語情報は不明です。一般的な誤用分析を行ってください。"
 
-        # ★改行を強制するように指示を強化しました
         prompt = f"""
         あなたは日本語音声学・対照言語学・日本語教育の高度な専門家です。
         以下の音声認識データに基づき、教師が指導に活用するための詳細な「音声評価」を作成してください。
@@ -218,39 +226,56 @@ with col2:
 
 tab1, tab2 = st.tabs(["📁 ファイルをアップロード", "🎙️ その場で録音する"])
 
-target_audio = None 
+target_file = None 
+file_type = "audio" # audio or video
 
 with tab1:
-    uploaded_file = st.file_uploader("音声ファイルを選択 (mp3, wav, m4a)", type=["mp3", "wav", "m4a"])
+    # ★動画ファイル(mp4, mov, avi等)も許可するように変更
+    uploaded_file = st.file_uploader("ファイルを選択 (音声・動画)", type=["mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv"])
     if uploaded_file:
-        st.audio(uploaded_file)
-        target_audio = uploaded_file
+        # 拡張子で動画か音声か判断してプレビューを切り替え
+        ext = uploaded_file.name.split('.')[-1].lower()
+        if ext in ['mp4', 'mov', 'avi', 'mkv']:
+            st.video(uploaded_file)
+            file_type = "video"
+        else:
+            st.audio(uploaded_file)
+            file_type = "audio"
+        target_file = uploaded_file
 
 with tab2:
     st.write("ボタンを押して話し、終わったら停止ボタンを押してください。")
     recorded_audio = st.audio_input("録音開始")
     if recorded_audio:
-        target_audio = recorded_audio
+        target_file = recorded_audio
+        file_type = "audio"
 
 # --- 分析ボタン ---
 if st.button("🚀 音声評価を開始する", type="primary"):
-    if target_audio:
-        with st.spinner('🎧 分析実行中...'):
-            audio_bytes = target_audio.getvalue()
+    if target_file:
+        with st.spinner('🎧 動画・音声から分析データを抽出中...'):
+            # ファイルのバイトデータを取得
+            file_bytes = target_file.getvalue()
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio:
-                tmp_audio.write(audio_bytes)
-                tmp_audio_path = tmp_audio.name
+            # 一時ファイルに保存 (拡張子を維持またはmp3等にする)
+            # 動画の場合もffmpegがよしなに処理するので、一旦保存する
+            suffix = ".mp4" if file_type == "video" else ".mp3"
             
-            res = analyze_audio(tmp_audio_path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_source:
+                tmp_source.write(file_bytes)
+                tmp_source_path = tmp_source.name
+            
+            # 分析実行 (内部でffmpegが動画→音声変換を行う)
+            res = analyze_audio(tmp_source_path)
             
             if "error" in res:
                 st.error(res["error"])
             else:
                 st.success("解析完了")
 
-                # 固定プレーヤー
-                player_html = get_sticky_audio_player(audio_bytes)
+                # ★スティッキープレーヤーには「変換後の軽量MP3」を渡す
+                # (動画ファイルそのままだと重すぎてHTML埋め込みでクラッシュするため)
+                player_html = get_sticky_audio_player(res["audio_content"])
                 st.markdown(player_html, unsafe_allow_html=True)
 
                 st.subheader("🗣️ 音声認識データ")
@@ -306,6 +331,6 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                     mime="text/plain"
                 )
 
-            if os.path.exists(tmp_audio_path): os.remove(tmp_audio_path)
+            if os.path.exists(tmp_source_path): os.remove(tmp_source_path)
     else:
-        st.warning("音声ファイルを選択するか、録音してください。")
+        st.warning("ファイルを選択するか、録音してください。")
