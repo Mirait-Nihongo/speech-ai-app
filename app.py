@@ -9,7 +9,7 @@ from google.cloud import speech
 from google.oauth2 import service_account
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v3.5", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v3.6", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画完全対応版）")
 
@@ -35,13 +35,13 @@ def get_sticky_audio_player(audio_bytes):
     """
     b64 = base64.b64encode(audio_bytes).decode()
     # Markdownのコードブロック誤認識を防ぐため、インデントを詰めて記述
-    md = f"""<style>.sticky-audio {{position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f0f2f6; padding: 10px 20px; z-index: 99999; border-top: 1px solid #ccc; text-align: center; box-shadow: 0px -2px 10px rgba(0,0,0,0.1);}} .main .block-container {{padding-bottom: 120px;}}</style><script>function seekTo(seconds) {{var player = document.getElementById('sticky-player'); if (player) {{player.currentTime = seconds; player.play();}}}}</script><div class="sticky-audio"><div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">🔊 録音データ再生（評価を見ながら聞いてください）</div><audio id="sticky-player" controls src="data:audio/mp3;base64,{b64}" style="width: 100%; max-width: 600px;"></audio></div>"""
+    md = f"""<style>.sticky-audio {{position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f0f2f6; padding: 10px 20px; z-index: 99999; border-top: 1px solid #ccc; text-align: center; box-shadow: 0px -2px 10px rgba(0,0,0,0.1);}} .main .block-container {{padding-bottom: 120px;}}</style><div class="sticky-audio"><div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">🔊 録音データ再生（評価を見ながら聞いてください）</div><audio id="sticky-player" controls src="data:audio/mp3;base64,{b64}" style="width: 100%; max-width: 600px;"></audio></div>"""
     return md
 
 def generate_clickable_word_list(word_data):
     """
     信頼度の低い単語リストを受け取り、クリック可能なHTMLボタンのリストを作成する
-    ★修正: インデントを削除し、Markdownによるコードブロック誤変換を防止
+    ★修正: JavaScriptの 'parent.' を削除し、正しく要素を取得できるように修正
     """
     html_content = """<div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 20px;"><h4 style="margin-top:0; color:#856404;">⚠️ 低信頼度・要確認箇所（クリックで再生）</h4><div style="display: flex; flex-wrap: wrap; gap: 10px;">"""
     
@@ -53,8 +53,8 @@ def generate_clickable_word_list(word_data):
             word = item['word']
             conf = int(item['conf'] * 100)
             
-            # ★ここを1行にしてインデントを排除
-            button_html = f"""<button onclick="parent.document.getElementById('sticky-player').currentTime={start_time}; parent.document.getElementById('sticky-player').play();" style="background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px; padding: 5px 10px; cursor: pointer; font-size: 0.9em; color: #d9534f; font-weight: bold; display: flex; align-items: center; gap: 5px;"><span>▶ {word}</span><span style="font-size:0.8em; color:#666; font-weight:normal;">({conf}%)</span></button>"""
+            # ★ここを修正しました (parent.document -> document)
+            button_html = f"""<button onclick="document.getElementById('sticky-player').currentTime={start_time}; document.getElementById('sticky-player').play();" style="background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px; padding: 5px 10px; cursor: pointer; font-size: 0.9em; color: #d9534f; font-weight: bold; display: flex; align-items: center; gap: 5px;"><span>▶ {word}</span><span style="font-size:0.8em; color:#666; font-weight:normal;">({conf}%)</span></button>"""
             
             html_content += button_html
             count += 1
@@ -109,7 +109,7 @@ def analyze_audio(source_path):
     if not response.results:
         return {"error": "音声認識不可(無音/ノイズ)"}
 
-    # 全ての結果をつなぎ合わせる（途切れ防止）
+    # 全ての結果をつなぎ合わせる
     full_transcript = ""
     full_details = []
     word_data_list = []
@@ -288,11 +288,11 @@ if st.button("🚀 音声評価を開始する", type="primary"):
 
                 st.subheader("🗣️ 音声認識データ")
                 
-                # クリック可能なボタンリスト（修正済み）
+                # クリック可能なボタンリスト
                 clickable_list_html = generate_clickable_word_list(res["word_data"])
                 st.markdown(clickable_list_html, unsafe_allow_html=True)
                 
-                # 全文表示ボックス（改行対応）
+                # 全文表示ボックス
                 st.markdown(
                     f"""<div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; color: #1E1E1E; font-family: sans-serif; line-height: 1.6; margin-bottom: 20px;">{res["main_text"]}</div>""", 
                     unsafe_allow_html=True
