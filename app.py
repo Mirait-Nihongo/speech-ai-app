@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v4.0", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v4.1", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画完全対応版）")
 
@@ -193,25 +193,34 @@ def ask_gemini(student_name, nationality, text, alts, details):
     except Exception as e:
         return f"❌ 予期せぬエラー: {e}"
 
-# --- ★HTML生成用関数（Iframe用） ---
-def create_player_and_buttons_html(audio_content, word_data):
+# --- ★HTML生成用関数（v4.1: Iframeを使わない直接注入方式） ---
+def render_sticky_player_and_buttons(audio_content, word_data):
     """
-    プレーヤーとボタンのみを含むHTMLを作成する
-    ※テキスト本文は含めない
+    st.components.v1.html を使い、親ウィンドウ(Streamlit本体)のDOMに
+    プレーヤーと操作スクリプトを注入するHack。
+    これにより「Sticky」と「ボタン操作」を両立させる。
     """
     b64_audio = base64.b64encode(audio_content).decode()
     
     # ボタンリストのHTML作成
     buttons_html = ""
     count = 0
+    # ユニークIDを作成して干渉を防ぐ
+    unique_id = int(datetime.datetime.now().timestamp())
+    
     for item in word_data:
         if item['conf'] < 0.8:
             start = item['start']
             word = item['word']
             conf = int(item['conf'] * 100)
+            # data-seek属性に秒数を埋め込む
             buttons_html += f"""
-            <button onclick="seekTo({start})" class="play-btn">
-                ▶ {word} <span class="conf">({conf}%)</span>
+            <button class="seek-btn-{unique_id}" data-seek="{start}" style="
+                background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px;
+                padding: 6px 12px; cursor: pointer; color: #d9534f; font-weight: bold;
+                font-size: 14px; display: inline-flex; align-items: center; gap: 5px; margin: 4px;
+            ">
+                ▶ {word} <span style="font-size:12px; color:#666; font-weight:normal;">({conf}%)</span>
             </button>
             """
             count += 1
@@ -219,60 +228,103 @@ def create_player_and_buttons_html(audio_content, word_data):
     if count == 0:
         buttons_html = "<div style='color:#666; padding:10px;'>特に低い信頼度の箇所は見つかりませんでした（優秀です！）</div>"
 
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: sans-serif; margin: 0; padding: 10px; padding-bottom: 90px; background-color: #ffffff; }}
-            .alert-box {{ background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 15px; }}
-            .alert-title {{ margin-top: 0; color: #856404; font-weight: bold; margin-bottom: 10px; font-size: 14px; }}
-            .btn-container {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-            .play-btn {{
-                background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px;
-                padding: 6px 12px; cursor: pointer; color: #d9534f; font-weight: bold;
-                font-size: 14px; display: flex; align-items: center; gap: 5px;
-                transition: background-color 0.2s;
-            }}
-            .play-btn:hover {{ background-color: #f8f9fa; border-color: #adadad; }}
-            .conf {{ font-size: 12px; color: #666; font-weight: normal; }}
+    # Streamlit上にボタンを表示（st.markdownを使用）
+    st.markdown(
+        f"""
+        <div style="background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+            <div style="margin-top: 0; color: #856404; font-weight: bold; margin-bottom: 10px; font-size: 14px;">
+                ⚠️ 低信頼度・要確認箇所（クリックで再生）
+            </div>
+            <div>{buttons_html}</div>
+            <div style="font-size: 12px; color: #856404; margin-top: 8px;">
+                ※ボタンを押すと、画面下のプレーヤーが連動して再生されます。
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # プレーヤーと制御スクリプトを一つのHTMLコンポーネントとして埋め込む
+    # height=0 にすることで画面上のスペースを取らず、position:fixedで最下部に表示させる
+    html_code = f"""
+    <div id="sticky-audio-container-{unique_id}" style="
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: #f1f3f5;
+        border-top: 1px solid #dee2e6;
+        padding: 10px 0;
+        text-align: center;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+        z-index: 999999;
+    ">
+        <div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">
+            🔊 録音データ再生
+        </div>
+        <audio id="audio-player-{unique_id}" controls style="width: 90%; max-width: 600px;">
+            <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
+        </audio>
+    </div>
+
+    <script>
+        // StreamlitのIframe外(親ウィンドウ)からボタン操作を受け取るのは難しいので
+        // このコンポーネント内で完結させるのではなく、
+        // Streamlitのmarkdownで描画されたボタンに対してイベントリスナを設定するHack
+        
+        function setupInteraction() {{
+            // 親ウィンドウ(Streamlit本体)のドキュメントを取得
+            var parentDoc = window.parent.document;
             
-            .sticky-player {{
-                position: fixed; bottom: 0; left: 0; width: 100%;
-                background-color: #f1f3f5; border-top: 1px solid #dee2e6;
-                padding: 10px; text-align: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            // プレーヤー要素 (このIframe内にある)
+            var player = document.getElementById("audio-player-{unique_id}");
+            
+            // 親ウィンドウにあるボタンを探す
+            var buttons = parentDoc.getElementsByClassName("seek-btn-{unique_id}");
+            
+            // ボタンにイベントリスナを追加
+            for (var i = 0; i < buttons.length; i++) {{
+                buttons[i].onclick = function() {{
+                    var seekTime = this.getAttribute("data-seek");
+                    player.currentTime = seekTime;
+                    player.play();
+                }};
             }}
-            audio {{ width: 100%; max-width: 600px; }}
-        </style>
+        }}
+
+        // タイミング調整（描画待ち）
+        setTimeout(setupInteraction, 1000);
+        setInterval(setupInteraction, 2000); // 念のため定期実行でボタン再描画に対応
+    </script>
+    """
+    
+    # プレーヤー本体とロジックを埋め込む（高さ調整を行い、コンテンツとして確保）
+    # ただし position: fixed なので、Iframeの枠を飛び出して表示されるようにする魔法はStreamlitでは難しい。
+    # 代替案: Iframe自体を画面下部に固定するCSSを注入する。
+    
+    # ★決定版ロジック:
+    # 1. プレーヤーは Iframe 内にある。
+    # 2. Iframe を画面最下部に固定するスタイルを親に注入する。
+    
+    components.html(
+        f"""
+        {html_code}
         <script>
-            function seekTo(seconds) {{
-                var player = document.getElementById('audio-player');
-                player.currentTime = seconds;
-                player.play();
+            // このIframe要素自体を探して、スタイルを書き換えて画面下部に固定する
+            var frame = window.frameElement;
+            if (frame) {{
+                frame.style.position = "fixed";
+                frame.style.bottom = "0";
+                frame.style.left = "0";
+                frame.style.width = "100%";
+                frame.style.height = "100px";
+                frame.style.zIndex = "999999";
+                frame.style.border = "none";
             }}
         </script>
-    </head>
-    <body>
-        <div class="alert-box">
-            <div class="alert-title">⚠️ 低信頼度・要確認箇所（クリックで再生）</div>
-            <div class="btn-container">
-                {buttons_html}
-            </div>
-            <div style="font-size: 12px; color: #856404; margin-top: 8px;">
-                ※ボタンを押すと、下のプレーヤーでその箇所が再生されます。
-            </div>
-        </div>
-
-        <div class="sticky-player">
-            <audio id="audio-player" controls>
-                <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
-                Your browser does not support the audio element.
-            </audio>
-        </div>
-    </body>
-    </html>
-    """
-    return html
+        """,
+        height=0 # 初期確保は0だが、スクリプトで拡張・固定される
+    )
 
 # --- メイン画面 ---
 st.info("👇 学習者の情報を入力してください")
@@ -328,9 +380,11 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 st.success("解析完了")
 
                 st.subheader("🗣️ 音声認識・再生パネル")
-                st.info("下の枠内をスクロールして確認できます。ボタンを押すと再生されます。")
-
-                # --- 変更点: テキストはコンテナの外（直下）に表示 ---
+                
+                # 1. 再生ボタンリストと固定プレーヤーの描画（v4.1方式）
+                render_sticky_player_and_buttons(res["audio_content"], res["word_data"])
+                
+                # 2. テキスト本文（ネイティブ表示）
                 st.markdown(
                     f"""
                     <div style="
@@ -348,11 +402,6 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                     """,
                     unsafe_allow_html=True
                 )
-                
-                # --- 変更点: コンテナ（Iframe）にはボタンとプレーヤーのみ表示 ---
-                # テキストが外に出た分、Iframeの高さを少し調整
-                html_code = create_player_and_buttons_html(res["audio_content"], res["word_data"])
-                components.html(html_code, height=250, scrolling=True)
                 
                 with st.expander("🔍 分析用生データ (教師用)", expanded=False):
                     st.write("※スコアが80未満の箇所には ⚠️ が付いています")
