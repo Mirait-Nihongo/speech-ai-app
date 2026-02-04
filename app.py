@@ -7,10 +7,10 @@ import base64
 import google.generativeai as genai
 from google.cloud import speech
 from google.oauth2 import service_account
-import streamlit.components.v1 as components  # ★重要: これを追加
+import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v3.9", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v4.0", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画完全対応版）")
 
@@ -194,10 +194,10 @@ def ask_gemini(student_name, nationality, text, alts, details):
         return f"❌ 予期せぬエラー: {e}"
 
 # --- ★HTML生成用関数（Iframe用） ---
-def create_interactive_report_html(audio_content, word_data, main_text):
+def create_player_and_buttons_html(audio_content, word_data):
     """
-    プレーヤー、ボタン、テキストを一つのHTMLにまとめて返す
-    これによりJavaScriptが確実に動作し、再生機能が保証される
+    プレーヤーとボタンのみを含むHTMLを作成する
+    ※テキスト本文は含めない
     """
     b64_audio = base64.b64encode(audio_content).decode()
     
@@ -219,16 +219,14 @@ def create_interactive_report_html(audio_content, word_data, main_text):
     if count == 0:
         buttons_html = "<div style='color:#666; padding:10px;'>特に低い信頼度の箇所は見つかりませんでした（優秀です！）</div>"
 
-    # HTML全体を構築
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <style>
-            body {{ font-family: sans-serif; margin: 0; padding: 0; padding-bottom: 80px; background-color: #ffffff; }}
-            .container {{ padding: 15px; }}
-            .alert-box {{ background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 15px; margin-bottom: 20px; }}
-            .alert-title {{ margin-top: 0; color: #856404; font-weight: bold; margin-bottom: 10px; }}
+            body {{ font-family: sans-serif; margin: 0; padding: 10px; padding-bottom: 90px; background-color: #ffffff; }}
+            .alert-box {{ background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 15px; }}
+            .alert-title {{ margin-top: 0; color: #856404; font-weight: bold; margin-bottom: 10px; font-size: 14px; }}
             .btn-container {{ display: flex; flex-wrap: wrap; gap: 8px; }}
             .play-btn {{
                 background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px;
@@ -238,10 +236,7 @@ def create_interactive_report_html(audio_content, word_data, main_text):
             }}
             .play-btn:hover {{ background-color: #f8f9fa; border-color: #adadad; }}
             .conf {{ font-size: 12px; color: #666; font-weight: normal; }}
-            .text-box {{
-                background-color: #f8f9fa; padding: 20px; border-radius: 10px;
-                line-height: 1.8; color: #333; font-size: 16px; border: 1px solid #e9ecef;
-            }}
+            
             .sticky-player {{
                 position: fixed; bottom: 0; left: 0; width: 100%;
                 background-color: #f1f3f5; border-top: 1px solid #dee2e6;
@@ -258,24 +253,17 @@ def create_interactive_report_html(audio_content, word_data, main_text):
         </script>
     </head>
     <body>
-        <div class="container">
-            <div class="alert-box">
-                <div class="alert-title">⚠️ 低信頼度・要確認箇所（クリックで再生）</div>
-                <div class="btn-container">
-                    {buttons_html}
-                </div>
+        <div class="alert-box">
+            <div class="alert-title">⚠️ 低信頼度・要確認箇所（クリックで再生）</div>
+            <div class="btn-container">
+                {buttons_html}
             </div>
-            
-            <div class="text-box">
-                <strong>【認識結果】</strong><br>
-                {main_text}
+            <div style="font-size: 12px; color: #856404; margin-top: 8px;">
+                ※ボタンを押すと、下のプレーヤーでその箇所が再生されます。
             </div>
         </div>
 
         <div class="sticky-player">
-            <div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">
-                🔊 録音データ再生
-            </div>
             <audio id="audio-player" controls>
                 <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
                 Your browser does not support the audio element.
@@ -342,9 +330,29 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 st.subheader("🗣️ 音声認識・再生パネル")
                 st.info("下の枠内をスクロールして確認できます。ボタンを押すと再生されます。")
 
-                # ★ここが変更点: Iframeを使った確実な埋め込み
-                html_code = create_interactive_report_html(res["audio_content"], res["word_data"], res["main_text"])
-                components.html(html_code, height=400, scrolling=True)
+                # --- 変更点: テキストはコンテナの外（直下）に表示 ---
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: #f8f9fa; 
+                        padding: 15px; 
+                        border-radius: 8px; 
+                        border: 1px solid #dee2e6;
+                        color: #212529;
+                        line-height: 1.8;
+                        margin-bottom: 20px;
+                    ">
+                        <strong>【認識結果】</strong><br>
+                        {res["main_text"]}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # --- 変更点: コンテナ（Iframe）にはボタンとプレーヤーのみ表示 ---
+                # テキストが外に出た分、Iframeの高さを少し調整
+                html_code = create_player_and_buttons_html(res["audio_content"], res["word_data"])
+                components.html(html_code, height=250, scrolling=True)
                 
                 with st.expander("🔍 分析用生データ (教師用)", expanded=False):
                     st.write("※スコアが80未満の箇所には ⚠️ が付いています")
