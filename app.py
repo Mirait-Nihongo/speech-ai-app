@@ -9,7 +9,7 @@ from google.cloud import speech
 from google.oauth2 import service_account
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v3.0", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v3.1", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画対応版）")
 
@@ -99,8 +99,6 @@ def analyze_audio(source_path):
     except Exception as e:
         return {"error": f"認識エラー: {e}"}
     finally:
-        # 変換済みファイルはここで削除せず、戻り値に含めるか呼び出し元で管理する
-        # 今回はcontentを返すので削除してOK
         if os.path.exists(converted_path): os.remove(converted_path)
 
     if not response.results:
@@ -122,7 +120,7 @@ def analyze_audio(source_path):
         "main_text": alt.transcript,
         "alts": ", ".join(all_candidates),
         "details": formatted_details,
-        "audio_content": content # ★変換後のMP3データを返す（プレーヤー用）
+        "audio_content": content 
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
@@ -227,13 +225,11 @@ with col2:
 tab1, tab2 = st.tabs(["📁 ファイルをアップロード", "🎙️ その場で録音する"])
 
 target_file = None 
-file_type = "audio" # audio or video
+file_type = "audio" 
 
 with tab1:
-    # ★動画ファイル(mp4, mov, avi等)も許可するように変更
     uploaded_file = st.file_uploader("ファイルを選択 (音声・動画)", type=["mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv"])
     if uploaded_file:
-        # 拡張子で動画か音声か判断してプレビューを切り替え
         ext = uploaded_file.name.split('.')[-1].lower()
         if ext in ['mp4', 'mov', 'avi', 'mkv']:
             st.video(uploaded_file)
@@ -254,18 +250,13 @@ with tab2:
 if st.button("🚀 音声評価を開始する", type="primary"):
     if target_file:
         with st.spinner('🎧 動画・音声から分析データを抽出中...'):
-            # ファイルのバイトデータを取得
             file_bytes = target_file.getvalue()
-
-            # 一時ファイルに保存 (拡張子を維持またはmp3等にする)
-            # 動画の場合もffmpegがよしなに処理するので、一旦保存する
             suffix = ".mp4" if file_type == "video" else ".mp3"
             
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_source:
                 tmp_source.write(file_bytes)
                 tmp_source_path = tmp_source.name
             
-            # 分析実行 (内部でffmpegが動画→音声変換を行う)
             res = analyze_audio(tmp_source_path)
             
             if "error" in res:
@@ -273,13 +264,27 @@ if st.button("🚀 音声評価を開始する", type="primary"):
             else:
                 st.success("解析完了")
 
-                # ★スティッキープレーヤーには「変換後の軽量MP3」を渡す
-                # (動画ファイルそのままだと重すぎてHTML埋め込みでクラッシュするため)
+                # スティッキープレーヤー
                 player_html = get_sticky_audio_player(res["audio_content"])
                 st.markdown(player_html, unsafe_allow_html=True)
 
                 st.subheader("🗣️ 音声認識データ")
-                st.code(res["main_text"], language=None)
+                # ★修正箇所：st.codeをやめ、自動折り返し対応のカスタムボックスを使用
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: #f0f2f6; 
+                        padding: 20px; 
+                        border-radius: 10px; 
+                        color: #1E1E1E;
+                        font-family: sans-serif;
+                        line-height: 1.6;
+                    ">
+                        {res["main_text"]}
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
                 
                 with st.expander("🔍 分析用生データ (教師用)", expanded=True):
                     st.write("※スコアが80未満の箇所には ⚠️ が付いています")
