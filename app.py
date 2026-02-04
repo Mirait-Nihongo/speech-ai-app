@@ -9,7 +9,7 @@ from google.cloud import speech
 from google.oauth2 import service_account
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v3.1", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v3.2", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画対応版）")
 
@@ -62,6 +62,7 @@ def get_sticky_audio_player(audio_bytes):
 def analyze_audio(source_path):
     """
     音声または動画ファイルを受け取り、MP3に変換して認識・分析を行う
+    ※修正：長い音声でも途切れず全て結合するようにループ処理を追加
     """
     try:
         credentials = service_account.Credentials.from_service_account_file(json_path)
@@ -90,10 +91,11 @@ def analyze_audio(source_path):
             encoding=speech.RecognitionConfig.AudioEncoding.ENCODING_UNSPECIFIED,
             sample_rate_hertz=16000,
             language_code="ja-JP",
-            enable_automatic_punctuation=False,
-            max_alternatives=5, 
+            enable_automatic_punctuation=True, # 句読点を自動で入れる
+            max_alternatives=1, 
             enable_word_confidence=True
         )
+        # 長い音声に対応するメソッド
         operation = client.long_running_recognize(config=config, audio=audio)
         response = operation.result(timeout=600)
     except Exception as e:
@@ -104,21 +106,32 @@ def analyze_audio(source_path):
     if not response.results:
         return {"error": "音声認識不可(無音/ノイズ)"}
 
-    result = response.results[0]
-    alt = result.alternatives[0]
-    all_candidates = [a.transcript for a in result.alternatives]
+    # --- ★修正箇所：分割された結果（Chunks）をすべてつなぎ合わせる ---
+    full_transcript = ""
+    full_details = []
     
-    details_list = []
-    for w in alt.words:
-        score = int(w.confidence * 100)
-        marker = " ⚠️" if w.confidence < 0.8 else ""
-        details_list.append(f"{w.word}({score}){marker}")
+    for result in response.results:
+        # 各チャンクの最有力候補を取得
+        alt = result.alternatives[0]
+        
+        # 文章を結合
+        full_transcript += alt.transcript
+        
+        # 単語ごとの信頼度（詳細スコア）も結合
+        for w in alt.words:
+            score = int(w.confidence * 100)
+            marker = " ⚠️" if w.confidence < 0.8 else ""
+            full_details.append(f"{w.word}({score}){marker}")
+            
+    # 詳細スコアのリストを文字列に変換
+    formatted_details = ", ".join(full_details)
     
-    formatted_details = ", ".join(details_list)
+    # 別候補（長い音声の場合は膨大になるため、メインの認識結果のみに絞ります）
+    all_candidates_str = "（長尺モードのため省略）"
 
     return {
-        "main_text": alt.transcript,
-        "alts": ", ".join(all_candidates),
+        "main_text": full_transcript,
+        "alts": all_candidates_str,
         "details": formatted_details,
         "audio_content": content 
     }
@@ -161,8 +174,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
         【分析対象データ】
         ※データ内の「⚠️」は、機械判定の信頼度が低い（不明瞭または誤音の可能性が高い）箇所です。
         1. 認識結果: {text}
-        2. 揺れ(別候補): {alts}
-        3. 詳細スコア: {details}
+        2. 詳細スコア: {details}
 
         【出力形式（厳守）】
         レポートの冒頭に、以下の「総合評価サマリー」を出力してください。
@@ -269,7 +281,7 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 st.markdown(player_html, unsafe_allow_html=True)
 
                 st.subheader("🗣️ 音声認識データ")
-                # ★修正箇所：st.codeをやめ、自動折り返し対応のカスタムボックスを使用
+                # カスタムボックス表示
                 st.markdown(
                     f"""
                     <div style="
@@ -318,9 +330,6 @@ if st.button("🚀 音声評価を開始する", type="primary"):
 【詳細スコア (信頼度)】
 ※80点未満は ⚠️ マーク付き
 {res['details']}
-
-【認識候補の揺れ】
-{res['alts']}
 
 --------------------------------
 【AI講師による音声評価】
