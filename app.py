@@ -7,9 +7,10 @@ import base64
 import google.generativeai as genai
 from google.cloud import speech
 from google.oauth2 import service_account
+import streamlit.components.v1 as components  # ★重要: これを追加
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v3.8", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v3.9", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画完全対応版）")
 
@@ -28,45 +29,6 @@ except Exception as e:
     st.stop()
 
 # --- 関数群 ---
-
-def get_sticky_audio_player(audio_bytes):
-    """
-    音声データをBase64に変換して、画面下に固定されるHTMLプレーヤーを作る
-    """
-    b64 = base64.b64encode(audio_bytes).decode()
-    # HTMLのインデントによる不具合を防ぐため、1行で記述
-    md = f"""<style>.sticky-audio {{position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f0f2f6; padding: 10px 20px; z-index: 99999; border-top: 1px solid #ccc; text-align: center; box-shadow: 0px -2px 10px rgba(0,0,0,0.1);}} .main .block-container {{padding-bottom: 120px;}}</style><div class="sticky-audio"><div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">🔊 録音データ再生（評価を見ながら聞いてください）</div><audio id="sticky-player" controls preload="auto" src="data:audio/mp3;base64,{b64}" style="width: 100%; max-width: 600px;"></audio></div>"""
-    return md
-
-def generate_clickable_word_list(word_data):
-    """
-    信頼度の低い単語リストを受け取り、クリック可能なHTMLボタンのリストを作成する
-    ★修正: 外部関数に依存せず、その場でプレーヤーを探す強力なインラインJSに変更
-    """
-    html_content = """<div style="background-color: #fff3cd; border: 1px solid #ffeeba; padding: 15px; border-radius: 8px; margin-bottom: 20px;"><h4 style="margin-top:0; color:#856404;">⚠️ 低信頼度・要確認箇所（クリックで再生）</h4><div style="display: flex; flex-wrap: wrap; gap: 10px;">"""
-    
-    count = 0
-    for item in word_data:
-        # 信頼度80%未満のみ表示
-        if item['conf'] < 0.8:
-            start_time = item['start']
-            word = item['word']
-            conf = int(item['conf'] * 100)
-            
-            # ★修正箇所：IDで見つからなければ、タグ名(audio)で強引に探しに行くロジック
-            # 改行を含まない1行の文字列として作成
-            js_code = f"var p=document.getElementById('sticky-player'); if(!p){{ p=document.getElementsByTagName('audio')[0]; }} if(p){{p.currentTime={start_time}; p.play();}} else {{ alert('Audio Player not found'); }}"
-            
-            button_html = f"""<button onclick="{js_code}" style="background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px; padding: 5px 10px; cursor: pointer; font-size: 0.9em; color: #d9534f; font-weight: bold; display: flex; align-items: center; gap: 5px;"><span>▶ {word}</span><span style="font-size:0.8em; color:#666; font-weight:normal;">({conf}%)</span></button>"""
-            
-            html_content += button_html
-            count += 1
-
-    if count == 0:
-        html_content += "<span style='color:#666;'>特に低い信頼度の箇所は見つかりませんでした（優秀です！）</span>"
-        
-    html_content += """</div><div style="margin-top:10px; font-size:0.8em; color:#666;">※ボタンを押すと、画面下のプレーヤーが該当箇所から再生されます。</div></div>"""
-    return html_content
 
 def analyze_audio(source_path):
     """
@@ -112,7 +74,6 @@ def analyze_audio(source_path):
     if not response.results:
         return {"error": "音声認識不可(無音/ノイズ)"}
 
-    # 全ての結果をつなぎ合わせる
     full_transcript = ""
     full_details = []
     word_data_list = []
@@ -232,6 +193,99 @@ def ask_gemini(student_name, nationality, text, alts, details):
     except Exception as e:
         return f"❌ 予期せぬエラー: {e}"
 
+# --- ★HTML生成用関数（Iframe用） ---
+def create_interactive_report_html(audio_content, word_data, main_text):
+    """
+    プレーヤー、ボタン、テキストを一つのHTMLにまとめて返す
+    これによりJavaScriptが確実に動作し、再生機能が保証される
+    """
+    b64_audio = base64.b64encode(audio_content).decode()
+    
+    # ボタンリストのHTML作成
+    buttons_html = ""
+    count = 0
+    for item in word_data:
+        if item['conf'] < 0.8:
+            start = item['start']
+            word = item['word']
+            conf = int(item['conf'] * 100)
+            buttons_html += f"""
+            <button onclick="seekTo({start})" class="play-btn">
+                ▶ {word} <span class="conf">({conf}%)</span>
+            </button>
+            """
+            count += 1
+            
+    if count == 0:
+        buttons_html = "<div style='color:#666; padding:10px;'>特に低い信頼度の箇所は見つかりませんでした（優秀です！）</div>"
+
+    # HTML全体を構築
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: sans-serif; margin: 0; padding: 0; padding-bottom: 80px; background-color: #ffffff; }}
+            .container {{ padding: 15px; }}
+            .alert-box {{ background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 15px; margin-bottom: 20px; }}
+            .alert-title {{ margin-top: 0; color: #856404; font-weight: bold; margin-bottom: 10px; }}
+            .btn-container {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+            .play-btn {{
+                background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px;
+                padding: 6px 12px; cursor: pointer; color: #d9534f; font-weight: bold;
+                font-size: 14px; display: flex; align-items: center; gap: 5px;
+                transition: background-color 0.2s;
+            }}
+            .play-btn:hover {{ background-color: #f8f9fa; border-color: #adadad; }}
+            .conf {{ font-size: 12px; color: #666; font-weight: normal; }}
+            .text-box {{
+                background-color: #f8f9fa; padding: 20px; border-radius: 10px;
+                line-height: 1.8; color: #333; font-size: 16px; border: 1px solid #e9ecef;
+            }}
+            .sticky-player {{
+                position: fixed; bottom: 0; left: 0; width: 100%;
+                background-color: #f1f3f5; border-top: 1px solid #dee2e6;
+                padding: 10px; text-align: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            }}
+            audio {{ width: 100%; max-width: 600px; }}
+        </style>
+        <script>
+            function seekTo(seconds) {{
+                var player = document.getElementById('audio-player');
+                player.currentTime = seconds;
+                player.play();
+            }}
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <div class="alert-box">
+                <div class="alert-title">⚠️ 低信頼度・要確認箇所（クリックで再生）</div>
+                <div class="btn-container">
+                    {buttons_html}
+                </div>
+            </div>
+            
+            <div class="text-box">
+                <strong>【認識結果】</strong><br>
+                {main_text}
+            </div>
+        </div>
+
+        <div class="sticky-player">
+            <div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">
+                🔊 録音データ再生
+            </div>
+            <audio id="audio-player" controls>
+                <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
 # --- メイン画面 ---
 st.info("👇 学習者の情報を入力してください")
 
@@ -285,21 +339,12 @@ if st.button("🚀 音声評価を開始する", type="primary"):
             else:
                 st.success("解析完了")
 
-                # スティッキープレーヤー (ID付き)
-                player_html = get_sticky_audio_player(res["audio_content"])
-                st.markdown(player_html, unsafe_allow_html=True)
+                st.subheader("🗣️ 音声認識・再生パネル")
+                st.info("下の枠内をスクロールして確認できます。ボタンを押すと再生されます。")
 
-                st.subheader("🗣️ 音声認識データ")
-                
-                # クリック可能なボタンリスト（修正済み）
-                clickable_list_html = generate_clickable_word_list(res["word_data"])
-                st.markdown(clickable_list_html, unsafe_allow_html=True)
-                
-                # 全文表示ボックス（改行対応）
-                st.markdown(
-                    f"""<div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; color: #1E1E1E; font-family: sans-serif; line-height: 1.6; margin-bottom: 20px;">{res["main_text"]}</div>""", 
-                    unsafe_allow_html=True
-                )
+                # ★ここが変更点: Iframeを使った確実な埋め込み
+                html_code = create_interactive_report_html(res["audio_content"], res["word_data"], res["main_text"])
+                components.html(html_code, height=400, scrolling=True)
                 
                 with st.expander("🔍 分析用生データ (教師用)", expanded=False):
                     st.write("※スコアが80未満の箇所には ⚠️ が付いています")
