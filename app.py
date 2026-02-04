@@ -9,7 +9,7 @@ from google.cloud import speech
 from google.oauth2 import service_account
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v3.2", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v3.3", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画対応版）")
 
@@ -30,7 +30,10 @@ except Exception as e:
 # --- 関数群 ---
 
 def get_sticky_audio_player(audio_bytes):
-    """音声データをBase64に変換して、画面下に固定されるHTMLプレーヤーを作る"""
+    """
+    音声データをBase64に変換して、画面下に固定されるHTMLプレーヤーを作る
+    ★修正: IDを付与し、JavaScriptで外部から操作可能にする
+    """
     b64 = base64.b64encode(audio_bytes).decode()
     md = f"""
         <style>
@@ -47,22 +50,89 @@ def get_sticky_audio_player(audio_bytes):
                 box-shadow: 0px -2px 10px rgba(0,0,0,0.1);
             }}
             .main .block-container {{
-                padding-bottom: 100px;
+                padding-bottom: 120px;
             }}
         </style>
+        <script>
+            function seekTo(seconds) {{
+                var player = document.getElementById('sticky-player');
+                if (player) {{
+                    player.currentTime = seconds;
+                    player.play();
+                }}
+            }}
+        </script>
         <div class="sticky-audio">
             <div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">
                 🔊 録音データ再生（評価を見ながら聞いてください）
             </div>
-            <audio controls src="data:audio/mp3;base64,{b64}" style="width: 100%; max-width: 600px;"></audio>
+            <audio id="sticky-player" controls src="data:audio/mp3;base64,{b64}" style="width: 100%; max-width: 600px;"></audio>
         </div>
     """
     return md
 
+def generate_clickable_word_list(word_data):
+    """
+    信頼度の低い単語リストを受け取り、クリック可能なHTMLボタンのリストを作成する
+    """
+    html_content = """
+    <div style="
+        background-color: #fff3cd; 
+        border: 1px solid #ffeeba; 
+        padding: 15px; 
+        border-radius: 8px; 
+        margin-bottom: 20px;">
+        <h4 style="margin-top:0; color:#856404;">⚠️ 低信頼度・要確認箇所（クリックで再生）</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+    """
+    
+    count = 0
+    for item in word_data:
+        # 信頼度80%未満のみ表示
+        if item['conf'] < 0.8:
+            start_time = item['start']
+            word = item['word']
+            conf = int(item['conf'] * 100)
+            
+            # ボタンHTML (JavaScriptのseekTo関数を呼ぶ)
+            button_html = f"""
+            <button onclick="parent.document.getElementById('sticky-player').currentTime={start_time}; parent.document.getElementById('sticky-player').play();" 
+            style="
+                background-color: #ffffff;
+                border: 1px solid #d3d3d3;
+                border-radius: 5px;
+                padding: 5px 10px;
+                cursor: pointer;
+                font-size: 0.9em;
+                color: #d9534f;
+                font-weight: bold;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            ">
+                <span>▶ {word}</span>
+                <span style="font-size:0.8em; color:#666; font-weight:normal;">({conf}%)</span>
+            </button>
+            """
+            html_content += button_html
+            count += 1
+
+    if count == 0:
+        html_content += "<span style='color:#666;'>特に低い信頼度の箇所は見つかりませんでした（優秀です！）</span>"
+        
+    html_content += """
+        </div>
+        <div style="margin-top:10px; font-size:0.8em; color:#666;">
+            ※ボタンを押すと、画面下のプレーヤーが該当箇所から再生されます。
+        </div>
+    </div>
+    """
+    return html_content
+
 def analyze_audio(source_path):
     """
     音声または動画ファイルを受け取り、MP3に変換して認識・分析を行う
-    ※修正：長い音声でも途切れず全て結合するようにループ処理を追加
+    ★修正: 単語ごとの開始時間(start_time)を取得して保存する
     """
     try:
         credentials = service_account.Credentials.from_service_account_file(json_path)
@@ -70,18 +140,15 @@ def analyze_audio(source_path):
     except Exception as e:
         return {"error": f"認証エラー: {e}"}
 
-    # 変換用の一時ファイルパス
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_converted:
         converted_path = tmp_converted.name
     
-    # ffmpegで入力ファイル(動画/音声)を強制的に 16kHz モノラル MP3 に変換
     cmd = f'ffmpeg -y -i "{source_path}" -ac 1 -ar 16000 -ab 32k "{converted_path}" -loglevel panic'
     exit_code = os.system(cmd)
     
     if exit_code != 0:
-        return {"error": "ファイル変換エラー（対応していない形式の可能性があります）"}
+        return {"error": "ファイル変換エラー"}
 
-    # 変換されたMP3データを読み込む
     with io.open(converted_path, "rb") as f:
         content = f.read()
     
@@ -91,11 +158,11 @@ def analyze_audio(source_path):
             encoding=speech.RecognitionConfig.AudioEncoding.ENCODING_UNSPECIFIED,
             sample_rate_hertz=16000,
             language_code="ja-JP",
-            enable_automatic_punctuation=True, # 句読点を自動で入れる
+            enable_automatic_punctuation=True,
             max_alternatives=1, 
-            enable_word_confidence=True
+            enable_word_confidence=True,
+            enable_word_time_offsets=True # ★重要: タイムスタンプを有効化
         )
-        # 長い音声に対応するメソッド
         operation = client.long_running_recognize(config=config, audio=audio)
         response = operation.result(timeout=600)
     except Exception as e:
@@ -106,34 +173,37 @@ def analyze_audio(source_path):
     if not response.results:
         return {"error": "音声認識不可(無音/ノイズ)"}
 
-    # --- ★修正箇所：分割された結果（Chunks）をすべてつなぎ合わせる ---
     full_transcript = ""
     full_details = []
+    word_data_list = [] # ★単語データを格納するリスト
     
     for result in response.results:
-        # 各チャンクの最有力候補を取得
         alt = result.alternatives[0]
-        
-        # 文章を結合
         full_transcript += alt.transcript
         
-        # 単語ごとの信頼度（詳細スコア）も結合
         for w in alt.words:
             score = int(w.confidence * 100)
+            start_seconds = w.start_time.total_seconds() # ★開始時間を取得
+            
             marker = " ⚠️" if w.confidence < 0.8 else ""
             full_details.append(f"{w.word}({score}){marker}")
             
-    # 詳細スコアのリストを文字列に変換
+            # データを保存
+            word_data_list.append({
+                "word": w.word,
+                "conf": w.confidence,
+                "start": start_seconds
+            })
+            
     formatted_details = ", ".join(full_details)
-    
-    # 別候補（長い音声の場合は膨大になるため、メインの認識結果のみに絞ります）
     all_candidates_str = "（長尺モードのため省略）"
 
     return {
         "main_text": full_transcript,
         "alts": all_candidates_str,
         "details": formatted_details,
-        "audio_content": content 
+        "audio_content": content,
+        "word_data": word_data_list # ★リストを返す
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
@@ -276,12 +346,17 @@ if st.button("🚀 音声評価を開始する", type="primary"):
             else:
                 st.success("解析完了")
 
-                # スティッキープレーヤー
+                # スティッキープレーヤー (ID付き)
                 player_html = get_sticky_audio_player(res["audio_content"])
                 st.markdown(player_html, unsafe_allow_html=True)
 
                 st.subheader("🗣️ 音声認識データ")
-                # カスタムボックス表示
+                
+                # ★クリック可能なボタンリストの生成と表示
+                clickable_list_html = generate_clickable_word_list(res["word_data"])
+                st.markdown(clickable_list_html, unsafe_allow_html=True)
+                
+                # 全文表示
                 st.markdown(
                     f"""
                     <div style="
@@ -291,6 +366,7 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                         color: #1E1E1E;
                         font-family: sans-serif;
                         line-height: 1.6;
+                        margin-bottom: 20px;
                     ">
                         {res["main_text"]}
                     </div>
@@ -298,10 +374,9 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                     unsafe_allow_html=True
                 )
                 
-                with st.expander("🔍 分析用生データ (教師用)", expanded=True):
+                with st.expander("🔍 分析用生データ (教師用)", expanded=False):
                     st.write("※スコアが80未満の箇所には ⚠️ が付いています")
                     st.write(f"信頼度詳細: {res['details']}")
-                    st.write(f"別候補: {res['alts']}")
 
                 st.markdown("---")
                 
