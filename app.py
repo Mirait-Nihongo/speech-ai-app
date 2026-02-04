@@ -10,7 +10,7 @@ from google.oauth2 import service_account
 import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v4.2", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v4.3", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（動画完全対応版）")
 
@@ -33,6 +33,7 @@ except Exception as e:
 def analyze_audio(source_path):
     """
     音声または動画ファイルを受け取り、MP3に変換して認識・分析を行う
+    ★修正: AIに送る詳細データにもタイムスタンプ(秒)を含める
     """
     try:
         credentials = service_account.Credentials.from_service_account_file(json_path)
@@ -43,7 +44,6 @@ def analyze_audio(source_path):
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_converted:
         converted_path = tmp_converted.name
     
-    # 動画ストリームを無視(-vn)して音声のみ抽出
     cmd = f'ffmpeg -y -i "{source_path}" -vn -ac 1 -ar 16000 -ab 32k "{converted_path}" -loglevel panic'
     exit_code = os.system(cmd)
     
@@ -86,8 +86,11 @@ def analyze_audio(source_path):
             score = int(w.confidence * 100)
             start_seconds = w.start_time.total_seconds()
             
+            # ★修正: Geminiに渡す文字列にも時間情報を含める (例: "[12.5s]")
+            time_str = f"[{start_seconds:.1f}s]"
             marker = " ⚠️" if w.confidence < 0.8 else ""
-            full_details.append(f"{w.word}({score}){marker}")
+            
+            full_details.append(f"{w.word}({score}){time_str}{marker}")
             
             word_data_list.append({
                 "word": w.word,
@@ -133,6 +136,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
         else:
             nat_instruction = "母語情報は不明です。一般的な誤用分析を行ってください。"
 
+        # ★修正: プロンプトで「タイムスタンプを含めること」を明示的に指示
         prompt = f"""
         あなたは日本語音声学・対照言語学・日本語教育の高度な専門家です。
         以下の音声認識データに基づき、教師が指導に活用するための詳細な「音声評価」を作成してください。
@@ -142,7 +146,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
         {nat_instruction}
         
         【分析対象データ】
-        ※データ内の「⚠️」は、機械判定の信頼度が低い（不明瞭または誤音の可能性が高い）箇所です。
+        ※データ形式: 単語(信頼度)[タイムスタンプ] ⚠️マーク
         1. 認識結果: {text}
         2. 詳細スコア: {details}
 
@@ -165,6 +169,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
         
         【詳細評価項目（5つの観点）】
         以下の5つの観点を含めて詳細な分析を行ってください。
+        **★重要: 具体的な誤用を指摘する際は、必ずデータのタイムスタンプを引用してください（例: 「言葉 (⚠️ 12.4s)」）。**
 
         1. **音韻体系の対照分析**
            - {nationality if nationality else "学習者の母語"}の音韻体系と日本語の相違点に基づく全体的傾向
@@ -193,16 +198,14 @@ def ask_gemini(student_name, nationality, text, alts, details):
     except Exception as e:
         return f"❌ 予期せぬエラー: {e}"
 
-# --- ★HTML生成用関数（v4.2: 表示崩れ対策・改行排除版） ---
+# --- HTML生成用関数 ---
 def render_sticky_player_and_buttons(audio_content, word_data):
     """
-    st.components.v1.html を使い、親ウィンドウ(Streamlit本体)のDOMに
-    プレーヤーと操作スクリプトを注入する。
-    ★修正点: HTML文字列内の不要な改行やインデントを排除し、Markdown誤認識を防ぐ。
+    st.components.v1.html を使い、親ウィンドウのDOMにプレーヤーと操作スクリプトを注入する。
+    HTML文字列内の改行やインデントを排除し、Markdown誤認識を防ぐ。
     """
     b64_audio = base64.b64encode(audio_content).decode()
     
-    # ボタンリストのHTML作成
     buttons_html = ""
     count = 0
     unique_id = int(datetime.datetime.now().timestamp())
@@ -212,20 +215,17 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             start = item['start']
             word = item['word']
             conf = int(item['conf'] * 100)
-            # ★修正: f-string内での改行を削除し、1行の文字列にする
             buttons_html += f'<button class="seek-btn-{unique_id}" data-seek="{start}" style="background-color: #ffffff; border: 1px solid #d3d3d3; border-radius: 5px; padding: 6px 12px; cursor: pointer; color: #d9534f; font-weight: bold; font-size: 14px; display: inline-flex; align-items: center; gap: 5px; margin: 4px;">▶ {word} <span style="font-size:12px; color:#666; font-weight:normal;">({conf}%)</span></button>'
             count += 1
             
     if count == 0:
         buttons_html = "<div style='color:#666; padding:10px;'>特に低い信頼度の箇所は見つかりませんでした（優秀です！）</div>"
 
-    # ★修正: コンテナのHTMLも改行を詰めて記述
     st.markdown(
         f"""<div style="background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 15px; margin-bottom: 20px;"><div style="margin-top: 0; color: #856404; font-weight: bold; margin-bottom: 10px; font-size: 14px;">⚠️ 低信頼度・要確認箇所（クリックで再生）</div><div>{buttons_html}</div><div style="font-size: 12px; color: #856404; margin-top: 8px;">※ボタンを押すと、画面下のプレーヤーが連動して再生されます。</div></div>""",
         unsafe_allow_html=True
     )
 
-    # プレーヤーと制御スクリプト
     html_code = f"""
     <div id="sticky-audio-container-{unique_id}" style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f1f3f5; border-top: 1px solid #dee2e6; padding: 10px 0; text-align: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); z-index: 999999;">
         <div style="margin-bottom:5px; font-weight:bold; font-size:0.9em; color:#333;">🔊 録音データ再生</div>
@@ -325,7 +325,7 @@ if st.button("🚀 音声評価を開始する", type="primary"):
 
                 st.subheader("🗣️ 音声認識・再生パネル")
                 
-                # 1. 再生ボタンリストと固定プレーヤーの描画（v4.2）
+                # 1. 再生ボタンリストと固定プレーヤー
                 render_sticky_player_and_buttons(res["audio_content"], res["word_data"])
                 
                 # 2. テキスト本文
