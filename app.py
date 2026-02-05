@@ -4,15 +4,16 @@ import io
 import tempfile
 import datetime
 import base64
+import re
 import google.generativeai as genai
 from google.cloud import speech
 from google.oauth2 import service_account
 import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v4.5", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v4.7", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
-st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（補正抑制版）")
+st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（検定試験風・断面図版）")
 
 # --- 認証情報の読み込み ---
 try:
@@ -58,8 +59,7 @@ def analyze_audio(source_path):
             encoding=speech.RecognitionConfig.AudioEncoding.ENCODING_UNSPECIFIED,
             sample_rate_hertz=16000,
             language_code="ja-JP",
-            # ★変更点: 自動句読点をOFFにして、文脈による文章整形（補正）を抑制する
-            enable_automatic_punctuation=False,
+            enable_automatic_punctuation=False, # 補正抑制
             max_alternatives=1, 
             enable_word_confidence=True,
             enable_word_time_offsets=True
@@ -135,6 +135,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
         else:
             nat_instruction = "母語情報は不明です。一般的な誤用分析を行ってください。"
 
+        # ★修正: SVG生成プロンプトを「検定試験風の模式図」に特化
         prompt = f"""
         あなたは日本語音声学・対照言語学・日本語教育の高度な専門家です。
         以下の音声認識データに基づき、教師が指導に活用するための詳細な「音声評価」を作成してください。
@@ -149,51 +150,51 @@ def ask_gemini(student_name, nationality, text, alts, details):
         2. 詳細スコア: {details}
 
         【重要な分析方針】
-        音声認識AIは、発音が不明瞭な場合に「一般的な単語」に勝手に補正してしまう仕様があります。
-        したがって、**「認識された文字そのもの」よりも「信頼度スコア(⚠️)」を重視**してください。
-
-        - もし認識結果が正しい日本語に見えても、**信頼度が低い(⚠️が付いている)場合**は、学習者が発音ミスをしており、それをAIが無理やり似た単語に当てはめた可能性が高いです。
-        - その場合、「AIは『〇〇』と認識しましたが、文脈や母語干渉から考えると、実際は『△△』と言おうとして発音が崩れた可能性があります」といった推測を行ってください。
+        音声認識AIの自動補正を考慮し、信頼度(⚠️)が低い箇所は「発音ミス」として厳しく分析してください。
 
         【出力形式（厳守）】
         レポートの冒頭に、以下の「総合評価サマリー」を出力してください。
-        **各項目は必ず改行し、箇条書きで見やすく表示してください。**
 
         ### 【総合評価サマリー】
-
-        * **総合音声スコア**： [ここに0~100の数値を算出] / 100
+        * **総合音声スコア**： [0~100] / 100
         * **明瞭度**： [S/A/B/C]
-            * [短い評価コメント]
-        * **日本語らしさ（リズム・拍）**： [S/A/B/C]
-            * [短い評価コメント]
-        * **要重点指導音**：
-            * [特に改善すべき音や項目1]
-            * [特に改善すべき音や項目2]
+        * **日本語らしさ**： [S/A/B/C]
+        * **要重点指導音**： [改善すべき音を列挙]
 
         ---
         
-        【詳細評価項目（5つの観点）】
-        以下の5つの観点を含めて詳細な分析を行ってください。
-        **★重要: 具体的な誤用を指摘する際は、必ずデータのタイムスタンプを引用してください（例: 「言葉 (⚠️ 12.4s)」）。**
+        【詳細評価項目】
+        以下の観点で分析してください。
+        **具体的な誤用指摘の際は、必ずタイムスタンプを引用すること。**
 
         1. **音韻体系の対照分析**
-           - {nationality if nationality else "学習者の母語"}の音韻体系と日本語の相違点に基づく全体的傾向
-        
         2. **母語にない・区別されない日本語音**
-           - 母語に存在しないため代用されている音、統合されてしまっている音の指摘
-           - (例: 清濁、有気・無気、特定の母音など)
+        3. **知覚上の誤認**
+        4. **日本語特有のプロソディ**
 
-        3. **調音位置・調音方法のずれ（補正された箇所の推測含む）**
-           - ⚠️が付いている箇所を中心に、どのような物理的ズレが起きているか推測してください
-           - AIによって補正された可能性がある単語についても言及してください
+        ---
 
-        4. **知覚上の誤認（聞き分けの問題）**
-           - 発音の誤りが「音を聞き分けられていない」ことに起因する可能性の分析
+        ### 【口腔断面図による比較分析】
+        最も大きな誤用が見られた音（例: /s/ vs /t/ や /r/ vs /d/ など）を1つ選び、
+        日本語教育能力検定試験で使われるような「口腔断面図（模式図）」を用いて解説してください。
 
-        5. **日本語特有のプロソディ**
-           - 拍（モーラ）感覚、長音、促音（っ）、撥音（ん）のリズム
-           - ピッチアクセントとイントネーションの自然さ
+        **1. 比較テーブル**
+        | 項目 | 正しい日本語の発音 | 学習者の誤った発音 |
+        | :--- | :--- | :--- |
+        | **鼻への通路** | [開いている/閉じている] | [開いている/閉じている] |
+        | **調音点(舌の接触点)** | [両唇/歯茎/硬口蓋/軟口蓋] | [どこに接触/接近しているか] |
+        | **調音法** | [破裂/摩擦/破擦/鼻音/弾き] | [どう変化してしまったか] |
 
+        **2. 模式図の生成 (SVG)**
+        以下の要件で、非常にシンプルなSVGコードを生成してください。
+        * 左側に「正しい発音」、右側に「誤った発音」を配置。
+        * **スタイル:** 解剖図ではなく、単純な線画（黒線）。塗りつぶしなし。
+        * **必須要素:**
+            1. 「上あごのライン」（唇～前歯～硬口蓋～軟口蓋の輪郭線）
+            2. 「舌のライン」（舌先～舌奥の曲線）
+        * **強調:** 舌が接触・接近している重要なポイント（調音点）に、**半透明の赤丸（rgba(255,0,0,0.5)）**を描画してハイライトしてください。
+        * コードは ```svg で囲んでください。
+        
         最後に「最優先指導計画」を提案してください。
         """
         response = model.generate_content(prompt)
@@ -202,13 +203,26 @@ def ask_gemini(student_name, nationality, text, alts, details):
     except Exception as e:
         return f"❌ 予期せぬエラー: {e}"
 
+# --- SVG抽出・表示用関数 ---
+def extract_and_display_svg(text):
+    """
+    GeminiのレスポンスからSVGコードブロックを抽出して表示する
+    """
+    pattern = r"```svg(.*?)```"
+    matches = re.findall(pattern, text, re.DOTALL)
+    
+    if matches:
+        st.subheader("🖼️ AI生成：口腔断面図（調音点の比較）")
+        st.caption("※日本語教育能力検定試験で用いられるような、舌の位置関係を示す模式図です。赤い丸は調音点（息を妨害する場所）を示します。")
+        for svg_code in matches:
+            # SVGを表示 (背景白、中央寄せ)
+            st.markdown(f'<div style="text-align: center; background-color: white; padding: 20px; border-radius: 10px; border:1px solid #ddd;">{svg_code}</div>', unsafe_allow_html=True)
+            
+    return matches
+
 # --- HTML生成用関数 ---
 def render_sticky_player_and_buttons(audio_content, word_data):
-    """
-    st.components.v1.html を使い、親ウィンドウのDOMにプレーヤーと操作スクリプトを注入する。
-    """
     b64_audio = base64.b64encode(audio_content).decode()
-    
     buttons_html = ""
     count = 0
     unique_id = int(datetime.datetime.now().timestamp())
@@ -253,25 +267,7 @@ def render_sticky_player_and_buttons(audio_content, word_data):
         setInterval(setupInteraction, 2000);
     </script>
     """
-    
-    components.html(
-        f"""
-        {html_code}
-        <script>
-            var frame = window.frameElement;
-            if (frame) {{
-                frame.style.position = "fixed";
-                frame.style.bottom = "0";
-                frame.style.left = "0";
-                frame.style.width = "100%";
-                frame.style.height = "100px";
-                frame.style.zIndex = "999999";
-                frame.style.border = "none";
-            }}
-        </script>
-        """,
-        height=0
-    )
+    components.html(f"{html_code}<script>var frame = window.frameElement; if(frame){{frame.style.position='fixed';frame.style.bottom='0';frame.style.left='0';frame.style.width='100%';frame.style.height='100px';frame.style.zIndex='999999';frame.style.border='none';}}</script>", height=0)
 
 # --- メイン画面 ---
 st.info("👇 学習者の情報を入力してください")
@@ -327,26 +323,10 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 st.success("解析完了")
 
                 st.subheader("🗣️ 音声認識・再生パネル")
-                
-                # 1. 再生ボタンリストと固定プレーヤー
                 render_sticky_player_and_buttons(res["audio_content"], res["word_data"])
                 
-                # 2. テキスト本文
                 st.markdown(
-                    f"""
-                    <div style="
-                        background-color: #f8f9fa; 
-                        padding: 15px; 
-                        border-radius: 8px; 
-                        border: 1px solid #dee2e6;
-                        color: #212529;
-                        line-height: 1.8;
-                        margin-bottom: 20px;
-                    ">
-                        <strong>【認識結果】</strong><br>
-                        {res["main_text"]}
-                    </div>
-                    """,
+                    f"""<div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; color: #212529; line-height: 1.8; margin-bottom: 20px;"><strong>【認識結果】</strong><br>{res["main_text"]}</div>""",
                     unsafe_allow_html=True
                 )
                 
@@ -362,7 +342,13 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 st.subheader(f"📝 {name_display}さんの音声評価{title_suffix}")
                 
                 report_content = ask_gemini(student_name, nationality, res["main_text"], res["alts"], res["details"])
-                st.markdown(report_content)
+                
+                # SVG抽出と表示
+                extract_and_display_svg(report_content)
+                
+                # レポート本文表示 (SVGコードは非表示にする処理)
+                clean_report = re.sub(r"```svg(.*?)```", "", report_content, flags=re.DOTALL)
+                st.markdown(clean_report)
                 
                 today_str = datetime.datetime.now().strftime('%Y-%m-%d')
                 safe_name = student_name if student_name else "student"
@@ -378,14 +364,13 @@ if st.button("🚀 音声評価を開始する", type="primary"):
 【音声認識結果】
 {res['main_text']}
 
-【詳細スコア (信頼度)】
-※80点未満は ⚠️ マーク付き
+【詳細スコア】
 {res['details']}
 
 --------------------------------
 【AI講師による音声評価】
 --------------------------------
-{report_content}
+{clean_report}
 """
                 file_name = f"{safe_name}_{today_str}_report.txt"
 
