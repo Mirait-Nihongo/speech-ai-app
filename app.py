@@ -11,9 +11,9 @@ from google.oauth2 import service_account
 import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v4.7", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v4.8", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
-st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（検定試験風・断面図版）")
+st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（解説強化版）")
 
 # --- 認証情報の読み込み ---
 try:
@@ -135,7 +135,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
         else:
             nat_instruction = "母語情報は不明です。一般的な誤用分析を行ってください。"
 
-        # ★修正: SVG生成プロンプトを「検定試験風の模式図」に特化
+        # ★修正: 図解生成指示を削除し、テーブル比較を重点的に行うよう指示
         prompt = f"""
         あなたは日本語音声学・対照言語学・日本語教育の高度な専門家です。
         以下の音声認識データに基づき、教師が指導に活用するための詳細な「音声評価」を作成してください。
@@ -174,26 +174,19 @@ def ask_gemini(student_name, nationality, text, alts, details):
 
         ---
 
-        ### 【口腔断面図による比較分析】
+        ### 【調音点・調音法の詳細比較分析】
         最も大きな誤用が見られた音（例: /s/ vs /t/ や /r/ vs /d/ など）を1つ選び、
-        日本語教育能力検定試験で使われるような「口腔断面図（模式図）」を用いて解説してください。
+        日本語教育能力検定試験の観点（調音点・調音法・鼻音性）から比較解説してください。
 
-        **1. 比較テーブル**
+        **比較テーブル**
         | 項目 | 正しい日本語の発音 | 学習者の誤った発音 |
         | :--- | :--- | :--- |
         | **鼻への通路** | [開いている/閉じている] | [開いている/閉じている] |
         | **調音点(舌の接触点)** | [両唇/歯茎/硬口蓋/軟口蓋] | [どこに接触/接近しているか] |
         | **調音法** | [破裂/摩擦/破擦/鼻音/弾き] | [どう変化してしまったか] |
 
-        **2. 模式図の生成 (SVG)**
-        以下の要件で、非常にシンプルなSVGコードを生成してください。
-        * 左側に「正しい発音」、右側に「誤った発音」を配置。
-        * **スタイル:** 解剖図ではなく、単純な線画（黒線）。塗りつぶしなし。
-        * **必須要素:**
-            1. 「上あごのライン」（唇～前歯～硬口蓋～軟口蓋の輪郭線）
-            2. 「舌のライン」（舌先～舌奥の曲線）
-        * **強調:** 舌が接触・接近している重要なポイント（調音点）に、**半透明の赤丸（rgba(255,0,0,0.5)）**を描画してハイライトしてください。
-        * コードは ```svg で囲んでください。
+        **指導アドバイス**
+        上記のズレを修正するために、教師が学習者にどのような身体的指示（例：「舌先をもっと前に」「息を鼻に抜かないで」）を出せばよいか、具体的に記述してください。
         
         最後に「最優先指導計画」を提案してください。
         """
@@ -203,22 +196,15 @@ def ask_gemini(student_name, nationality, text, alts, details):
     except Exception as e:
         return f"❌ 予期せぬエラー: {e}"
 
-# --- SVG抽出・表示用関数 ---
-def extract_and_display_svg(text):
+# --- 画像検索リンク生成関数 ---
+def create_search_button(error_sound):
     """
-    GeminiのレスポンスからSVGコードブロックを抽出して表示する
+    指定された音の口腔断面図を検索するボタンを表示
     """
-    pattern = r"```svg(.*?)```"
-    matches = re.findall(pattern, text, re.DOTALL)
-    
-    if matches:
-        st.subheader("🖼️ AI生成：口腔断面図（調音点の比較）")
-        st.caption("※日本語教育能力検定試験で用いられるような、舌の位置関係を示す模式図です。赤い丸は調音点（息を妨害する場所）を示します。")
-        for svg_code in matches:
-            # SVGを表示 (背景白、中央寄せ)
-            st.markdown(f'<div style="text-align: center; background-color: white; padding: 20px; border-radius: 10px; border:1px solid #ddd;">{svg_code}</div>', unsafe_allow_html=True)
-            
-    return matches
+    # 汎用的な検索クエリ
+    query = f"日本語 {error_sound} 発音 口腔断面図 イラスト"
+    url = f"https://www.google.com/search?q={query}&tbm=isch"
+    st.link_button(f"🔍 「{error_sound}」の断面図を検索", url)
 
 # --- HTML生成用関数 ---
 def render_sticky_player_and_buttons(audio_content, word_data):
@@ -343,12 +329,16 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 
                 report_content = ask_gemini(student_name, nationality, res["main_text"], res["alts"], res["details"])
                 
-                # SVG抽出と表示
-                extract_and_display_svg(report_content)
-                
-                # レポート本文表示 (SVGコードは非表示にする処理)
-                clean_report = re.sub(r"```svg(.*?)```", "", report_content, flags=re.DOTALL)
-                st.markdown(clean_report)
+                # SVG表示ロジックを削除し、純粋なテキストレポートのみ表示
+                # 検索ボタンは残す
+                st.markdown("##### 📚 外部資料リンク")
+                st.caption("詳細な口腔断面図が必要な場合は、以下から検索してください。")
+                col_s1, col_s2, col_s3 = st.columns(3)
+                with col_s1: create_search_button("サ行 (s/sh)")
+                with col_s2: create_search_button("タ行 (t/ts)")
+                with col_s3: create_search_button("ラ行 (r/l)")
+
+                st.markdown(report_content)
                 
                 today_str = datetime.datetime.now().strftime('%Y-%m-%d')
                 safe_name = student_name if student_name else "student"
@@ -370,7 +360,7 @@ if st.button("🚀 音声評価を開始する", type="primary"):
 --------------------------------
 【AI講師による音声評価】
 --------------------------------
-{clean_report}
+{report_content}
 """
                 file_name = f"{safe_name}_{today_str}_report.txt"
 
