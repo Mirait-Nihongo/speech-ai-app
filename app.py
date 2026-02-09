@@ -136,11 +136,12 @@ def analyze_audio(source_path):
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
-    # ★修正完了: 診断リスト(画像3)にあった「確実に存在するモデル」のみを指定
+    # ★修正箇所: 診断リストにあった「確実に存在するモデル」を指定
     target_models = [
         "gemini-2.0-flash",       # リストに存在 (最新・高速)
-        "gemini-2.0-flash-lite",  # リストに存在 (軽量版)
-        "gemini-flash-latest",    # リストに存在 (汎用エイリアス)
+        "gemini-2.5-flash",       # リストに存在 (超最新)
+        "gemini-flash-latest",    # リストに存在 (汎用)
+        "gemini-pro-latest"       # リストに存在 (Pro版)
     ]
     
     model = None
