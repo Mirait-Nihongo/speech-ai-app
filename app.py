@@ -13,7 +13,7 @@ from google.oauth2 import service_account
 import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v5.2", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v5.3", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析＋学習ログ保存")
 
@@ -136,12 +136,11 @@ def analyze_audio(source_path):
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
-    # ★修正完了: あなたの環境で実際に使えるモデル名(診断リスト準拠)に変更しました
+    # ★修正完了: 診断リスト(画像3)にあった「確実に存在するモデル」のみを指定
     target_models = [
-        "gemini-2.0-flash",       # 最新・高速 (リストに存在)
-        "gemini-2.5-flash",       # さらに新しいモデル (リストに存在)
-        "gemini-flash-latest",    # 最新版エイリアス (リストに存在)
-        "gemini-pro-latest"       # Pro版最新 (リストに存在)
+        "gemini-2.0-flash",       # リストに存在 (最新・高速)
+        "gemini-2.0-flash-lite",  # リストに存在 (軽量版)
+        "gemini-flash-latest",    # リストに存在 (汎用エイリアス)
     ]
     
     model = None
