@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v6.8", 
+    page_title="日本語音声 指導補助ツール v7.1", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -61,28 +61,49 @@ def load_credentials():
 # 認証情報をロード
 gemini_api_key, google_creds_dict = load_credentials()
 
-# --- サイドバー：システム診断ツール ---
+# --- サイドバー：システム診断ツール（パスワード保護付き） ---
 with st.sidebar:
-    st.header("🔧 システム状態チェック")
+    st.header("🔧 管理者メニュー")
     
-    if st.button("API接続テスト & モデル一覧取得"):
-        with st.spinner("問い合わせ中..."):
-            try:
-                available_models = []
-                for m in genai.list_models():
-                    if 'generateContent' in m.supported_generation_methods:
-                        available_models.append(m.name)
-                
-                if available_models:
-                    st.success(f"✅ API接続成功！ ({len(available_models)}個のモデルを検出)")
-                    with st.expander("利用可能なモデル一覧"):
-                        for model in available_models:
-                            st.code(model)
-                    st.info("※ 上記リストにあるモデル名が分析に使用されます。")
+    # セッション状態でログイン状態を管理
+    if "admin_logged_in" not in st.session_state:
+        st.session_state["admin_logged_in"] = False
+
+    if not st.session_state["admin_logged_in"]:
+        with st.expander("管理者ログイン"):
+            password_input = st.text_input("パスワード", type="password", key="admin_pass_input")
+            if st.button("ログイン"):
+                if password_input == "mirait0015":
+                    st.session_state["admin_logged_in"] = True
+                    st.rerun() # 画面を再描画してログイン状態を反映
                 else:
-                    st.warning("⚠️ 接続はできましたが、利用可能なモデルが見つかりませんでした。")
-            except Exception as e:
-                st.error(f"❌ API接続エラー: {e}")
+                    st.error("パスワードが違います")
+    else:
+        st.success("✅ 管理者としてログイン中")
+        
+        st.subheader("システム状態チェック")
+        if st.button("API接続テスト & モデル一覧取得"):
+            with st.spinner("問い合わせ中..."):
+                try:
+                    available_models = []
+                    for m in genai.list_models():
+                        if 'generateContent' in m.supported_generation_methods:
+                            available_models.append(m.name)
+                    
+                    if available_models:
+                        st.success(f"✅ API接続成功！ ({len(available_models)}個のモデルを検出)")
+                        with st.expander("利用可能なモデル一覧"):
+                            for model in available_models:
+                                st.code(model)
+                        st.info("※ 上記リストにあるモデル名が分析に使用されます。")
+                    else:
+                        st.warning("⚠️ 接続はできましたが、利用可能なモデルが見つかりませんでした。")
+                except Exception as e:
+                    st.error(f"❌ API接続エラー: {e}")
+        
+        if st.button("ログアウト"):
+            st.session_state["admin_logged_in"] = False
+            st.rerun()
 
 # --- 関数群 ---
 
@@ -539,7 +560,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v6.8
+生成元: 日本語音声指導補助ツール v6.9
 """
                 
                 st.download_button(
@@ -558,7 +579,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style="text-align: center; color: #666; font-size: 0.8em;">
-        Mirait Japanese Academy 日本語音声指導補助ツール v6.9 | Powered by Google Cloud Speech-to-Text & Gemini AI
+        Mirait Japanese Academy 日本語音声指導補助ツール v7.1 | Powered by Google Cloud Speech-to-Text & Gemini AI
     </div>
     """,
     unsafe_allow_html=True
