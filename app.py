@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v6.7", 
+    page_title="日本語音声 指導補助ツール v6.8", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -189,8 +189,8 @@ def ask_gemini(student_name, nationality, text, alts, details):
     nat_instruction = f"学習者の母語・国籍は「{nationality}」です。" if nationality else "母語情報は不明です。"
 
     prompt = f"""
-あなたは日本語音声学・対照言語学・日本語教育の専門家です。
-以下のデータに基づき、音声評価レポートを作成してください。
+あなたは日本語音声学・対照言語学・日本語教育の高度な専門家です。
+以下のデータに基づき、教師向けの専門的な音声評価レポートを作成してください。
 
 【基本情報】
 {name_part}
@@ -201,11 +201,16 @@ def ask_gemini(student_name, nationality, text, alts, details):
 詳細スコア: {details}
 
 【重要指示】
-- 信頼度が低い箇所（⚠️マーク）を発音ミスとして分析してください。
-- 母語の音韻体系との対照分析を実施してください。
-- **「要重点指導音」には、音声記号（IPA）と、それに対応する日本語（ひらがな・カタカナ・漢字など）を必ず併記してください。**
-  - 良い例: /tsɯ/ (つ), /ɕ/ (し), /ɾ/ (ら行), 長音 (ー)
-  - 悪い例: /tsɯ/, /ɕ/ (記号のみはNG)
+1. **分節音（母音・子音）の分析**:
+   - 信頼度が低い箇所（⚠️マーク）を発音ミスとして分析してください。
+   - 母語の干渉（母語の音韻体系の影響）を考慮してください。
+   - 「要重点指導音」には、音声記号（IPA）と対応する日本語（ひらがな等）を併記してください。
+
+2. **超分節音（プロソディ）の分析**:
+   以下の3点を独立した項目として詳細に評価してください。
+   - **拍と音節 (Mora vs Syllable)**: 日本語のモーラ感覚（等時性）が保たれているか。特殊拍（長音・促音・撥音）が短くなっていないか。
+   - **韻律とフット (Rhythm & Foot)**: 日本語のフット構造（2モーラ1フットの傾向）やリズムの自然さ。
+   - **アクセントとイントネーション**: 語彙のピッチアクセントの正誤、および文末・句末のイントネーション（上昇・下降）の適切さ。
 
 【出力形式（厳守）】
 レポートの冒頭に以下のサマリーを必ず含めてください。
@@ -219,7 +224,20 @@ def ask_gemini(student_name, nationality, text, alts, details):
 
 ---
 
-その後、詳細分析を記述してください。
+### 【詳細分析レポート】
+
+#### 1. 分節音レベルの評価
+(母音・子音の歪み、母語干渉など)
+
+#### 2. プロソディ（超分節音）レベルの評価
+* **拍と音節**: 
+  [分析コメント]
+* **韻律とフット**: 
+  [分析コメント]
+* **アクセントとイントネーション**: 
+  [分析コメント]
+
+#### 3. 指導アドバイス・練習計画
 """
     
     for model_name in target_models:
@@ -323,7 +341,7 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             word = item['word']
             conf = int(item['conf'] * 100)
             
-            # ★修正点: 全く改行やインデントを含まない1行の文字列として生成
+            # HTMLタグを1行で生成
             btn = f'<button class="seek-btn-{unique_id}" data-seek="{start}" style="background-color:#ffffff;border:1px solid #d3d3d3;border-radius:5px;padding:6px 12px;cursor:pointer;color:#d9534f;font-weight:bold;font-size:14px;display:inline-flex;align-items:center;gap:5px;margin:4px;">▶ {word} <span style="font-size:12px;color:#666;font-weight:normal;">({conf}%)</span></button>'
             buttons_html += btn
             low_conf_count += 1
@@ -331,14 +349,12 @@ def render_sticky_player_and_buttons(audio_content, word_data):
     if low_conf_count == 0:
         buttons_html = "<div style='color:#666;padding:10px;'>✅ 低信頼度の箇所なし（明瞭な発音）</div>"
 
-    # ボタンエリアの表示（HTMLとしてレンダリング）
-    # ★修正点: コンテナHTMLも1行につなげて、st.markdownの誤認を防ぐ
+    # コンテナHTMLも1行につなげて表示
     container_html = f'<div style="background-color:#fff3cd;border:1px solid #ffeeba;border-radius:8px;padding:15px;margin-bottom:20px;"><div style="color:#856404;font-weight:bold;margin-bottom:10px;">⚠️ 低信頼度箇所（クリックで再生）</div><div>{buttons_html}</div></div>'
     
     st.markdown(container_html, unsafe_allow_html=True)
 
     # 固定プレーヤー
-    # こちらはiframe内なので改行があっても影響少ないですが、念のため整形
     html_code = f"""
     <div id="sticky-audio-container-{unique_id}" style="position:fixed;bottom:0;left:0;width:100%;background-color:#f1f3f5;border-top:1px solid #dee2e6;padding:10px 0;text-align:center;box-shadow:0 -2px 10px rgba(0,0,0,0.1);z-index:999999;">
         <div style="font-size:12px;color:#666;margin-bottom:4px;font-weight:bold;">🔊 音声プレーヤー (レポート閲覧中もここに固定されます)</div>
@@ -523,7 +539,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v6.7
+生成元: 日本語音声指導補助ツール v6.8
 """
                 
                 st.download_button(
@@ -539,4 +555,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 Mirait Japanese Academy 日本語音声指導補助ツール v6.7 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v6.8 | Powered by Google Cloud Speech-to-Text & Gemini AI")
