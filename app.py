@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v6.1", 
+    page_title="日本語音声 指導補助ツール v6.3", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -197,7 +197,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
 【重要指示】
 - 信頼度が低い箇所（⚠️マーク）を発音ミスとして分析してください。
 - 母語の音韻体系との対照分析を実施してください。
-- **音声記号を使う際は、必ず対応する「ひらがな・カタカナ」や一般的な表記を併記してください。**
+- **「要重点指導音」には、音声記号（IPA）と対応するひらがなを必ず併記してください。**
   - 例: /tsɯ/ (つ), /ɕ/ (し), /ɾ/ (ら行), 長音 (ー)
 
 【出力形式（厳守）】
@@ -208,7 +208,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
 * **総合音声スコア**： [0~100の数値]
 * **明瞭度**： [S/A/B/C]
 * **日本語らしさ**： [S/A/B/C]
-* **要重点指導音**： [具体的な音素と対応するひらがな]
+* **要重点指導音**： [音声記号とひらがなを併記]
 
 ---
 
@@ -304,7 +304,7 @@ def save_to_sheet(data_dict):
 
 
 def render_sticky_player_and_buttons(audio_content, word_data):
-    """固定プレーヤーと低信頼度箇所へのジャンプボタンを表示（HTMLバグ修正版）"""
+    """固定プレーヤーと低信頼度箇所へのジャンプボタンを表示（HTMLバグ修正済）"""
     b64_audio = base64.b64encode(audio_content).decode()
     buttons_html = ""
     unique_id = int(datetime.datetime.now().timestamp() * 1000)
@@ -317,6 +317,7 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             conf = int(item['conf'] * 100)
             
             # HTML文字列としてボタンを構築（引用符のエスケープに注意）
+            # onclick属性でJavaScript関数を呼び出すように変更
             buttons_html += f"""
             <button class="seek-btn-{unique_id}" data-seek="{start}" 
                     style="background-color: #ffffff; 
@@ -356,7 +357,7 @@ def render_sticky_player_and_buttons(audio_content, word_data):
         unsafe_allow_html=True
     )
 
-    # 固定プレーヤー
+    # 固定プレーヤー (JavaScriptで親フレームのスタイルを書き換えて固定)
     html_code = f"""
     <div id="sticky-audio-container-{unique_id}" 
          style="position: fixed; 
@@ -367,8 +368,11 @@ def render_sticky_player_and_buttons(audio_content, word_data):
                 border-top: 1px solid #dee2e6; 
                 padding: 10px 0; 
                 text-align: center; 
-                box-shadow: 0 -2px 10px rgba(0,0,0,0.05); 
+                box-shadow: 0 -2px 10px rgba(0,0,0,0.1); 
                 z-index: 999999;">
+        <div style="font-size:12px; color:#666; margin-bottom:4px; font-weight:bold;">
+           🔊 音声プレーヤー (レポート閲覧中もここに固定されます)
+        </div>
         <audio id="audio-player-{unique_id}" controls 
                style="width: 90%; max-width: 600px;">
             <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
@@ -377,11 +381,26 @@ def render_sticky_player_and_buttons(audio_content, word_data):
     
     <script>
         (function() {{
+            // プレーヤーのiframe自体を画面下部に固定する処理
+            var frame = window.frameElement;
+            if (frame) {{
+                frame.style.position = "fixed";
+                frame.style.bottom = "0";
+                frame.style.left = "0";
+                frame.style.width = "100%";
+                frame.style.height = "100px"; // プレーヤーの高さ分確保
+                frame.style.zIndex = "999999";
+                frame.style.border = "none";
+            }}
+
             function setupInteraction() {{
                 var player = document.getElementById("audio-player-{unique_id}");
                 if (!player) return;
                 
-                var buttons = document.getElementsByClassName("seek-btn-{unique_id}");
+                // 親ウィンドウ（Streamlit本文）にあるボタンを探してイベントを登録
+                var parentDoc = window.parent.document;
+                var buttons = parentDoc.getElementsByClassName("seek-btn-{unique_id}");
+                
                 for (var i = 0; i < buttons.length; i++) {{
                     buttons[i].onclick = function() {{
                         var seekTime = parseFloat(this.getAttribute("data-seek"));
@@ -392,13 +411,14 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             }}
             
             // 初回実行と定期チェック
-            setTimeout(setupInteraction, 500);
+            setTimeout(setupInteraction, 1000);
             setInterval(setupInteraction, 2000);
         }})();
     </script>
     """
     
-    components.html(html_code, height=80)
+    # プレーヤーを描画（高さ0にしておき、JSでfixedにする）
+    components.html(html_code, height=0)
 
 
 # --- メイン処理 ---
@@ -469,6 +489,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                 st.success("✅ 音声解析完了！")
                 
                 # プレーヤーとジャンプボタン
+                # 先に描画することで、この後レポートがどれだけ長くても下部に固定されます
                 render_sticky_player_and_buttons(res["audio_content"], res["word_data"])
                 
                 # 認識結果表示
@@ -542,7 +563,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v6.1
+生成元: 日本語音声指導補助ツール v6.3
 """
                 
                 st.download_button(
@@ -552,7 +573,10 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                     mime="text/plain",
                     use_container_width=True
                 )
+                
+                # 下部に余白を追加（プレーヤーが被らないように）
+                st.markdown("<br><br><br><br>", unsafe_allow_html=True)
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v6.1 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v6.3 | Powered by Google Cloud Speech-to-Text & Gemini AI")
