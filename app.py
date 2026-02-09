@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v5.3", 
+    page_title="日本語音声 指導補助ツール v5.6", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -22,7 +22,7 @@ st.set_page_config(
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析＋学習ログ保存")
 
-# --- 認証情報の読み込み（エラーハンドリング強化） ---
+# --- 認証情報の読み込み ---
 def load_credentials():
     """認証情報を安全に読み込む"""
     try:
@@ -30,13 +30,11 @@ def load_credentials():
         gemini_api_key = st.secrets.get("GEMINI_API_KEY")
         if not gemini_api_key:
             st.error("⚠️ Secretsに GEMINI_API_KEY が設定されていません。")
-            st.info("💡 Streamlit Cloud: Settings > Secrets で設定してください")
             st.stop()
         
         # Google Cloud認証情報
         if "GOOGLE_JSON" not in st.secrets:
             st.error("⚠️ Secretsに GOOGLE_JSON が設定されていません。")
-            st.info("💡 Google Cloud サービスアカウントのJSON全体を貼り付けてください")
             st.stop()
         
         google_json_data = st.secrets["GOOGLE_JSON"]
@@ -58,7 +56,6 @@ def load_credentials():
     
     except Exception as e:
         st.error(f"⚠️ 認証情報の読み込みエラー: {e}")
-        st.info("💡 `.streamlit/secrets.toml` または Streamlit Cloud の Secrets を確認してください")
         st.stop()
 
 # 認証情報をロード
@@ -86,7 +83,6 @@ with st.sidebar:
                     st.warning("⚠️ 接続はできましたが、利用可能なモデルが見つかりませんでした。")
             except Exception as e:
                 st.error(f"❌ API接続エラー: {e}")
-                st.write("💡 ヒント: GEMINI_API_KEY が正しいか確認してください。")
 
 # --- 関数群 ---
 
@@ -173,18 +169,16 @@ def analyze_audio(source_path):
 def ask_gemini(student_name, nationality, text, alts, details):
     """Gemini APIで音声評価レポートを生成"""
     
-    # 利用可能なモデル（優先順）
+    # 診断結果に基づいた、確実に動くモデルリスト
     target_models = [
-        "gemini-2.0-flash-exp",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
+        "gemini-2.0-flash",       # 最新・高速・高性能
+        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
         "gemini-pro"
     ]
     
     last_error = None
     
-    # プロンプト作成
     name_part = f"学習者名は「{student_name}」です。" if student_name else "学習者名は不明です。"
     nat_instruction = f"学習者の母語・国籍は「{nationality}」です。" if nationality else "母語情報は不明です。"
 
@@ -203,10 +197,10 @@ def ask_gemini(student_name, nationality, text, alts, details):
 【重要指示】
 - 信頼度が低い箇所（⚠️マーク）を発音ミスとして分析
 - 母語の音韻体系との対照分析を実施
-- 具体的な練習方法を提示
 
-【出力形式】
-必ず冒頭に以下のサマリーを出力:
+【出力形式（厳守）】
+レポートの冒頭に以下のサマリーを必ず含めてください。
+（システムが数値を自動抽出するため、記号などを変えないでください）
 
 ### 【総合評価サマリー】
 * **総合音声スコア**： [0~100の数値] / 100
@@ -216,10 +210,9 @@ def ask_gemini(student_name, nationality, text, alts, details):
 
 ---
 
-その後、詳細分析（音韻、プロソディ、調音点の比較、指導計画）を記述してください。
+その後、詳細分析を記述してください。
 """
     
-    # モデルを順番に試す
     for model_name in target_models:
         try:
             model = genai.GenerativeModel(model_name)
@@ -230,15 +223,25 @@ def ask_gemini(student_name, nationality, text, alts, details):
             last_error = e
             continue
     
-    # 全て失敗した場合
     return f"❌ Gemini生成エラー（全モデルで失敗）: {last_error}"
 
 
 def parse_summary(report_text):
-    """レポートからサマリー情報を抽出"""
-    score_match = re.search(r'\*\*総合音声スコア\*\*[：:]\s*(\d+)', report_text)
-    clarity_match = re.search(r'\*\*明瞭度\*\*[：:]\s*([SABC])', report_text)
-    natural_match = re.search(r'\*\*日本語らしさ\*\*[：:]\s*([SABC])', report_text)
+    """
+    レポートからサマリー情報を抽出する（改良版：表記ゆれに強くしました）
+    """
+    # 抽出を容易にするため、**などの装飾記号を削除
+    clean_text = report_text.replace("**", "").replace("：", ":")
+    
+    # 柔軟な正規表現で抽出
+    # "総合音声スコア"の後ろにある数字を探す
+    score_match = re.search(r'総合音声スコア.*?:.*?(\d{1,3})', clean_text)
+    
+    # "明瞭度"の後ろにあるアルファベットを探す
+    clarity_match = re.search(r'明瞭度.*?:.*?([SABC])', clean_text, re.IGNORECASE)
+    
+    # "日本語らしさ"の後ろにあるアルファベットを探す
+    natural_match = re.search(r'日本語らしさ.*?:.*?([SABC])', clean_text, re.IGNORECASE)
     
     summary_block = "サマリー抽出失敗"
     try:
@@ -251,8 +254,8 @@ def parse_summary(report_text):
     
     return {
         "score": score_match.group(1) if score_match else "0",
-        "clarity": clarity_match.group(1) if clarity_match else "-",
-        "naturalness": natural_match.group(1) if natural_match else "-",
+        "clarity": clarity_match.group(1).upper() if clarity_match else "-",
+        "naturalness": natural_match.group(1).upper() if natural_match else "-",
         "summary_text": summary_block
     }
 
@@ -511,6 +514,8 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                             st.toast("✅ スプレッドシートに保存しました", icon="✅")
                         else:
                             st.warning(f"⚠️ 保存失敗: {msg}")
+                else:
+                     st.warning("⚠️ スコアの自動抽出に失敗しましたが、レポートは正常に生成されています。")
 
                 # ダウンロードボタン
                 st.markdown("---")
@@ -529,7 +534,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v5.3
+生成元: 日本語音声指導補助ツール v5.6
 """
                 
                 st.download_button(
@@ -542,4 +547,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v5.3 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v5.6 | Powered by Google Cloud Speech-to-Text & Gemini AI")
