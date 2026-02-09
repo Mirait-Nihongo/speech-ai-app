@@ -539,4 +539,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v6.7 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 Mirait Japanese Academy 日本語音声指導補助ツール v6.7 | Powered by Google Cloud Speech-to-Text & Gemini AI")
