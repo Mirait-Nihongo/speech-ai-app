@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v6.4", 
+    page_title="日本語音声 指導補助ツール v6.6", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -85,6 +85,12 @@ with st.sidebar:
                 st.error(f"❌ API接続エラー: {e}")
 
 # --- 関数群 ---
+
+def get_jst_now():
+    """現在時刻を日本時間(JST)で取得する"""
+    t_delta = datetime.timedelta(hours=9)
+    JST = datetime.timezone(t_delta, 'JST')
+    return datetime.datetime.now(JST)
 
 def analyze_audio(source_path):
     """音声認識を実行"""
@@ -317,7 +323,6 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             word = item['word']
             conf = int(item['conf'] * 100)
             
-            # ⚠️ ここが重要: HTMLタグを組み立てます
             buttons_html += f"""
             <button class="seek-btn-{unique_id}" data-seek="{start}" 
                     style="background-color: #ffffff; 
@@ -341,7 +346,6 @@ def render_sticky_player_and_buttons(audio_content, word_data):
         buttons_html = "<div style='color:#666; padding:10px;'>✅ 低信頼度の箇所なし（明瞭な発音）</div>"
 
     # ボタンエリアの表示（HTMLとしてレンダリング）
-    # ⚠️ ここで unsafe_allow_html=True が必要です
     st.markdown(
         f"""
         <div style="background-color: #fff3cd; 
@@ -360,36 +364,24 @@ def render_sticky_player_and_buttons(audio_content, word_data):
 
     # 固定プレーヤー (JavaScriptで親フレームのスタイルを書き換えて固定)
     html_code = f"""
-    <div id="sticky-audio-container-{unique_id}" 
-         style="position: fixed; 
-                bottom: 0; 
-                left: 0; 
-                width: 100%; 
-                background-color: #f1f3f5; 
-                border-top: 1px solid #dee2e6; 
-                padding: 10px 0; 
-                text-align: center; 
-                box-shadow: 0 -2px 10px rgba(0,0,0,0.1); 
-                z-index: 999999;">
+    <div id="sticky-audio-container-{unique_id}" style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f1f3f5; border-top: 1px solid #dee2e6; padding: 10px 0; text-align: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 999999;">
         <div style="font-size:12px; color:#666; margin-bottom:4px; font-weight:bold;">
            🔊 音声プレーヤー (レポート閲覧中もここに固定されます)
         </div>
-        <audio id="audio-player-{unique_id}" controls 
-               style="width: 90%; max-width: 600px;">
+        <audio id="audio-player-{unique_id}" controls style="width: 90%; max-width: 600px;">
             <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
         </audio>
     </div>
     
     <script>
         (function() {{
-            // プレーヤーのiframe自体を画面下部に固定する処理
             var frame = window.frameElement;
             if (frame) {{
                 frame.style.position = "fixed";
                 frame.style.bottom = "0";
                 frame.style.left = "0";
                 frame.style.width = "100%";
-                frame.style.height = "100px"; // プレーヤーの高さ分確保
+                frame.style.height = "100px";
                 frame.style.zIndex = "999999";
                 frame.style.border = "none";
             }}
@@ -398,7 +390,6 @@ def render_sticky_player_and_buttons(audio_content, word_data):
                 var player = document.getElementById("audio-player-{unique_id}");
                 if (!player) return;
                 
-                // 親ウィンドウ（Streamlit本文）にあるボタンを探してイベントを登録
                 var parentDoc = window.parent.document;
                 var buttons = parentDoc.getElementsByClassName("seek-btn-{unique_id}");
                 
@@ -411,14 +402,12 @@ def render_sticky_player_and_buttons(audio_content, word_data):
                 }}
             }}
             
-            // 初回実行と定期チェック
             setTimeout(setupInteraction, 1000);
             setInterval(setupInteraction, 2000);
         }})();
     </script>
     """
     
-    # プレーヤーを描画
     components.html(html_code, height=0)
 
 
@@ -490,7 +479,6 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                 st.success("✅ 音声解析完了！")
                 
                 # プレーヤーとジャンプボタン
-                # 先に描画することで、この後レポートがどれだけ長くても下部に固定されます
                 render_sticky_player_and_buttons(res["audio_content"], res["word_data"])
                 
                 # 認識結果表示
@@ -531,8 +519,10 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                 
                 if parsed["score"] != "0":
                     with st.spinner("💾 データを保存中..."):
+                        # ★修正箇所: 日時を日本時間(JST)で取得
+                        now_jst = get_jst_now()
                         save_data = {
-                            "date": datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
+                            "date": now_jst.strftime('%Y-%m-%d %H:%M'),
                             "name": student_name or "匿名",
                             "nationality": nationality or "不明",
                             **parsed
@@ -548,12 +538,13 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                     st.warning("⚠️ スコアの自動抽出に失敗しましたが、レポートは正常に生成されています。")
 
                 # ダウンロードボタン
+                now_jst = get_jst_now()
                 st.markdown("---")
                 download_text = f"""
 日本語音声評価レポート
 ====================
 
-【評価日時】 {datetime.datetime.now().strftime('%Y年%m月%d日 %H:%M')}
+【評価日時】 {now_jst.strftime('%Y年%m月%d日 %H:%M')} (JST)
 【学習者名】 {student_name or '匿名'}
 【母語】 {nationality or '不明'}
 
@@ -564,13 +555,13 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v6.4
+生成元: 日本語音声指導補助ツール v6.6
 """
                 
                 st.download_button(
                     label="📥 レポートをダウンロード",
                     data=download_text,
-                    file_name=f"{student_name or '匿名'}_音声評価_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    file_name=f"{student_name or '匿名'}_音声評価_{now_jst.strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain",
                     use_container_width=True
                 )
@@ -580,4 +571,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v6.4 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v6.6 | Powered by Google Cloud Speech-to-Text & Gemini AI")
