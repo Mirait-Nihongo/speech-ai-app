@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v6.6", 
+    page_title="日本語音声 指導補助ツール v6.7", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -311,7 +311,7 @@ def save_to_sheet(data_dict):
 
 
 def render_sticky_player_and_buttons(audio_content, word_data):
-    """固定プレーヤーと低信頼度箇所へのジャンプボタンを表示（HTMLバグ修正済）"""
+    """固定プレーヤーと低信頼度箇所へのジャンプボタンを表示（HTMLバグ完全修正版）"""
     b64_audio = base64.b64encode(audio_content).decode()
     buttons_html = ""
     unique_id = int(datetime.datetime.now().timestamp() * 1000)
@@ -323,56 +323,29 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             word = item['word']
             conf = int(item['conf'] * 100)
             
-            buttons_html += f"""
-            <button class="seek-btn-{unique_id}" data-seek="{start}" 
-                    style="background-color: #ffffff; 
-                           border: 1px solid #d3d3d3; 
-                           border-radius: 5px; 
-                           padding: 6px 12px; 
-                           cursor: pointer; 
-                           color: #d9534f; 
-                           font-weight: bold; 
-                           font-size: 14px; 
-                           display: inline-flex; 
-                           align-items: center; 
-                           gap: 5px; 
-                           margin: 4px;">
-                ▶ {word} <span style="font-size:12px; color:#666; font-weight:normal;">({conf}%)</span>
-            </button>
-            """
+            # ★修正点: 全く改行やインデントを含まない1行の文字列として生成
+            btn = f'<button class="seek-btn-{unique_id}" data-seek="{start}" style="background-color:#ffffff;border:1px solid #d3d3d3;border-radius:5px;padding:6px 12px;cursor:pointer;color:#d9534f;font-weight:bold;font-size:14px;display:inline-flex;align-items:center;gap:5px;margin:4px;">▶ {word} <span style="font-size:12px;color:#666;font-weight:normal;">({conf}%)</span></button>'
+            buttons_html += btn
             low_conf_count += 1
     
     if low_conf_count == 0:
-        buttons_html = "<div style='color:#666; padding:10px;'>✅ 低信頼度の箇所なし（明瞭な発音）</div>"
+        buttons_html = "<div style='color:#666;padding:10px;'>✅ 低信頼度の箇所なし（明瞭な発音）</div>"
 
     # ボタンエリアの表示（HTMLとしてレンダリング）
-    st.markdown(
-        f"""
-        <div style="background-color: #fff3cd; 
-                    border: 1px solid #ffeeba; 
-                    border-radius: 8px; 
-                    padding: 15px; 
-                    margin-bottom: 20px;">
-            <div style="color: #856404; font-weight: bold; margin-bottom: 10px;">
-                ⚠️ 低信頼度箇所（クリックで再生）
-            </div>
-            <div>{buttons_html}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    # ★修正点: コンテナHTMLも1行につなげて、st.markdownの誤認を防ぐ
+    container_html = f'<div style="background-color:#fff3cd;border:1px solid #ffeeba;border-radius:8px;padding:15px;margin-bottom:20px;"><div style="color:#856404;font-weight:bold;margin-bottom:10px;">⚠️ 低信頼度箇所（クリックで再生）</div><div>{buttons_html}</div></div>'
+    
+    st.markdown(container_html, unsafe_allow_html=True)
 
-    # 固定プレーヤー (JavaScriptで親フレームのスタイルを書き換えて固定)
+    # 固定プレーヤー
+    # こちらはiframe内なので改行があっても影響少ないですが、念のため整形
     html_code = f"""
-    <div id="sticky-audio-container-{unique_id}" style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f1f3f5; border-top: 1px solid #dee2e6; padding: 10px 0; text-align: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 999999;">
-        <div style="font-size:12px; color:#666; margin-bottom:4px; font-weight:bold;">
-           🔊 音声プレーヤー (レポート閲覧中もここに固定されます)
-        </div>
-        <audio id="audio-player-{unique_id}" controls style="width: 90%; max-width: 600px;">
+    <div id="sticky-audio-container-{unique_id}" style="position:fixed;bottom:0;left:0;width:100%;background-color:#f1f3f5;border-top:1px solid #dee2e6;padding:10px 0;text-align:center;box-shadow:0 -2px 10px rgba(0,0,0,0.1);z-index:999999;">
+        <div style="font-size:12px;color:#666;margin-bottom:4px;font-weight:bold;">🔊 音声プレーヤー (レポート閲覧中もここに固定されます)</div>
+        <audio id="audio-player-{unique_id}" controls style="width:90%;max-width:600px;">
             <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
         </audio>
     </div>
-    
     <script>
         (function() {{
             var frame = window.frameElement;
@@ -385,14 +358,11 @@ def render_sticky_player_and_buttons(audio_content, word_data):
                 frame.style.zIndex = "999999";
                 frame.style.border = "none";
             }}
-
             function setupInteraction() {{
                 var player = document.getElementById("audio-player-{unique_id}");
                 if (!player) return;
-                
                 var parentDoc = window.parent.document;
                 var buttons = parentDoc.getElementsByClassName("seek-btn-{unique_id}");
-                
                 for (var i = 0; i < buttons.length; i++) {{
                     buttons[i].onclick = function() {{
                         var seekTime = parseFloat(this.getAttribute("data-seek"));
@@ -401,7 +371,6 @@ def render_sticky_player_and_buttons(audio_content, word_data):
                     }};
                 }}
             }}
-            
             setTimeout(setupInteraction, 1000);
             setInterval(setupInteraction, 2000);
         }})();
@@ -519,7 +488,6 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                 
                 if parsed["score"] != "0":
                     with st.spinner("💾 データを保存中..."):
-                        # ★修正箇所: 日時を日本時間(JST)で取得
                         now_jst = get_jst_now()
                         save_data = {
                             "date": now_jst.strftime('%Y-%m-%d %H:%M'),
@@ -555,7 +523,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v6.6
+生成元: 日本語音声指導補助ツール v6.7
 """
                 
                 st.download_button(
@@ -571,4 +539,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v6.6 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v6.7 | Powered by Google Cloud Speech-to-Text & Gemini AI")
