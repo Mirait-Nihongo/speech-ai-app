@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v6.3", 
+    page_title="日本語音声 指導補助ツール v6.4", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -197,8 +197,9 @@ def ask_gemini(student_name, nationality, text, alts, details):
 【重要指示】
 - 信頼度が低い箇所（⚠️マーク）を発音ミスとして分析してください。
 - 母語の音韻体系との対照分析を実施してください。
-- **「要重点指導音」には、音声記号（IPA）と対応するひらがなを必ず併記してください。**
-  - 例: /tsɯ/ (つ), /ɕ/ (し), /ɾ/ (ら行), 長音 (ー)
+- **「要重点指導音」には、音声記号（IPA）と、それに対応する日本語（ひらがな・カタカナ・漢字など）を必ず併記してください。**
+  - 良い例: /tsɯ/ (つ), /ɕ/ (し), /ɾ/ (ら行), 長音 (ー)
+  - 悪い例: /tsɯ/, /ɕ/ (記号のみはNG)
 
 【出力形式（厳守）】
 レポートの冒頭に以下のサマリーを必ず含めてください。
@@ -316,8 +317,7 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             word = item['word']
             conf = int(item['conf'] * 100)
             
-            # HTML文字列としてボタンを構築（引用符のエスケープに注意）
-            # onclick属性でJavaScript関数を呼び出すように変更
+            # ⚠️ ここが重要: HTMLタグを組み立てます
             buttons_html += f"""
             <button class="seek-btn-{unique_id}" data-seek="{start}" 
                     style="background-color: #ffffff; 
@@ -341,6 +341,7 @@ def render_sticky_player_and_buttons(audio_content, word_data):
         buttons_html = "<div style='color:#666; padding:10px;'>✅ 低信頼度の箇所なし（明瞭な発音）</div>"
 
     # ボタンエリアの表示（HTMLとしてレンダリング）
+    # ⚠️ ここで unsafe_allow_html=True が必要です
     st.markdown(
         f"""
         <div style="background-color: #fff3cd; 
@@ -417,7 +418,7 @@ def render_sticky_player_and_buttons(audio_content, word_data):
     </script>
     """
     
-    # プレーヤーを描画（高さ0にしておき、JSでfixedにする）
+    # プレーヤーを描画
     components.html(html_code, height=0)
 
 
@@ -563,7 +564,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v6.3
+生成元: 日本語音声指導補助ツール v6.4
 """
                 
                 st.download_button(
@@ -579,4 +580,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v6.3 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v6.4 | Powered by Google Cloud Speech-to-Text & Gemini AI")
