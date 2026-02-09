@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v5.7", 
+    page_title="日本語音声 指導補助ツール v6.0", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -302,7 +302,7 @@ def save_to_sheet(data_dict):
 
 
 def render_sticky_player_and_buttons(audio_content, word_data):
-    """固定プレーヤーと低信頼度箇所へのジャンプボタンを表示"""
+    """固定プレーヤーと低信頼度箇所へのジャンプボタンを表示（HTMLバグ修正版）"""
     b64_audio = base64.b64encode(audio_content).decode()
     buttons_html = ""
     unique_id = int(datetime.datetime.now().timestamp() * 1000)
@@ -314,7 +314,8 @@ def render_sticky_player_and_buttons(audio_content, word_data):
             word = item['word']
             conf = int(item['conf'] * 100)
             
-            buttons_html += f'''
+            # HTML文字列としてボタンを構築（引用符のエスケープに注意）
+            buttons_html += f"""
             <button class="seek-btn-{unique_id}" data-seek="{start}" 
                     style="background-color: #ffffff; 
                            border: 1px solid #d3d3d3; 
@@ -330,13 +331,13 @@ def render_sticky_player_and_buttons(audio_content, word_data):
                            margin: 4px;">
                 ▶ {word} <span style="font-size:12px; color:#666; font-weight:normal;">({conf}%)</span>
             </button>
-            '''
+            """
             low_conf_count += 1
     
     if low_conf_count == 0:
         buttons_html = "<div style='color:#666; padding:10px;'>✅ 低信頼度の箇所なし（明瞭な発音）</div>"
 
-    # ボタンエリア
+    # ボタンエリアの表示（HTMLとしてレンダリング）
     st.markdown(
         f"""
         <div style="background-color: #fff3cd; 
@@ -520,9 +521,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                         else:
                             st.warning(f"⚠️ 保存失敗: {msg}")
                 else:
-                    # 失敗した場合でも、なぜ失敗したか（どんなテキストを拾おうとしたか）を表示
                     st.warning("⚠️ スコアの自動抽出に失敗しましたが、レポートは正常に生成されています。")
-                    st.write("抽出デバッグ用（開発者向け）:", parsed)
 
                 # ダウンロードボタン
                 st.markdown("---")
@@ -541,7 +540,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v5.7
+生成元: 日本語音声指導補助ツール v6.0
 """
                 
                 st.download_button(
@@ -554,4 +553,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v5.7 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v6.0 | Powered by Google Cloud Speech-to-Text & Gemini AI")
