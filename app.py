@@ -136,13 +136,12 @@ def analyze_audio(source_path):
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
-    # ★修正: 最も一般的で安定しているモデルエイリアスを優先
+    # ★修正: 診断リストにあった「実際に使えるモデル」を指定します
     target_models = [
-        "gemini-1.5-flash",          # エイリアス（通常はこれでOK）
-        "gemini-1.5-flash-latest",   # 最新版
-        "gemini-2.0-flash-exp",      # 実験版（もしあれば）
-        "gemini-1.5-pro",            # Pro版
-        "gemini-pro"                 # 旧版
+        "gemini-2.0-flash",       # リストにあった最新の高速モデル
+        "gemini-2.0-flash-lite",  # 軽量版
+        "gemini-flash-latest",    # 最新版エイリアス
+        "gemini-pro-latest"       # 最新版Pro
     ]
     
     model = None
