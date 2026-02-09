@@ -13,7 +13,7 @@ from google.oauth2 import service_account
 import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v5.3", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v5.4", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
 st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析＋学習ログ保存")
 
@@ -22,9 +22,10 @@ try:
     # Secretsから情報を取得
     gemini_api_key = st.secrets.get("GEMINI_API_KEY")
     
-    # Google Cloud認証情報 (JSON or Dict)
+    # Google Cloud認証情報の読み込み（新旧フォーマット両対応）
     if "GOOGLE_JSON" in st.secrets:
         google_json_data = st.secrets["GOOGLE_JSON"]
+        # TOML形式で辞書として認識されているか、文字列かを確認して分岐
         if isinstance(google_json_data, str):
             try:
                 google_creds_dict = json.loads(google_json_data)
@@ -32,6 +33,7 @@ try:
                 st.error("⚠️ SecretsのGOOGLE_JSONが正しいJSON形式ではありません。")
                 st.stop()
         else:
+            # 既に辞書オブジェクトになっている場合
             google_creds_dict = dict(google_json_data)
     else:
         st.error("⚠️ Secretsに GOOGLE_JSON が設定されていません。")
@@ -44,7 +46,8 @@ try:
     genai.configure(api_key=gemini_api_key)
 
 except Exception as e:
-    st.error(f"⚠️ 設定エラー: Secretsの設定を確認してください。\n詳細: {e}")
+    # 詳細なエラーを出力してデバッグしやすくする
+    st.error(f"⚠️ 設定エラー: Secretsの読み込みに失敗しました。\n詳細: {e}")
     st.stop()
 
 # --- サイドバー：システム診断ツール ---
@@ -86,7 +89,7 @@ def analyze_audio(source_path):
     exit_code = os.system(cmd)
     
     if exit_code != 0:
-        return {"error": "ファイル変換エラー (FFmpeg)"}
+        return {"error": "ファイル変換エラー (FFmpegがインストールされていない可能性があります)"}
 
     with io.open(converted_path, "rb") as f:
         content = f.read()
@@ -136,16 +139,16 @@ def analyze_audio(source_path):
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
-    # ★修正箇所: 診断リストにあった「確実に存在するモデル」を指定
+    # ★修正完了: 診断リストにあった「確実に存在するモデル」のみを厳選して指定
     target_models = [
         "gemini-2.0-flash",       # リストに存在 (最新・高速)
-        "gemini-2.5-flash",       # リストに存在 (超最新)
-        "gemini-flash-latest",    # リストに存在 (汎用)
-        "gemini-pro-latest"       # リストに存在 (Pro版)
+        "gemini-2.5-flash",       # リストに存在
+        "gemini-flash-latest",    # リストに存在
     ]
     
     model = None
     last_error = None
+    errors_log = []
     
     # 利用可能なモデルを探して実行を試みる
     for m_name in target_models:
@@ -190,9 +193,11 @@ def ask_gemini(student_name, nationality, text, alts, details):
             
         except Exception as e:
             last_error = e
+            errors_log.append(f"{m_name}: {str(e)}")
             continue # 失敗したら次のモデルへ
             
-    return f"❌ Gemini生成エラー (全てのモデルで失敗): {last_error}"
+    # 全てのモデルで失敗した場合、詳細なログを出す
+    return f"❌ Gemini生成エラー (全てのモデルで失敗): \n" + "\n".join(errors_log)
 
 # --- スプレッドシート連携 ---
 def parse_summary(report_text):
