@@ -5,28 +5,34 @@ import tempfile
 import datetime
 import base64
 import re
+import json
+import gspread
 import google.generativeai as genai
 from google.cloud import speech
 from google.oauth2 import service_account
 import streamlit.components.v1 as components
 
 # --- 設定 ---
-st.set_page_config(page_title="日本語音声 指導補助ツール v4.8", page_icon="👨‍🏫", layout="centered")
+st.set_page_config(page_title="日本語音声 指導補助ツール v5.0", page_icon="👨‍🏫", layout="centered")
 st.title("👨‍🏫 日本語音声 指導補助ツール")
-st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析（解説強化版）")
+st.markdown("教師向け：対照言語学に基づく音声評価・誤用分析＋学習ログ保存")
 
 # --- 認証情報の読み込み ---
 try:
+    # Secretsから情報を取得
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
     google_json_str = st.secrets["GOOGLE_JSON"]
     
+    # 文字列の場合はJSONオブジェクトに変換（gspread用）
+    if isinstance(google_json_str, str):
+        google_creds_dict = json.loads(google_json_str)
+    else:
+        google_creds_dict = google_json_str
+
     genai.configure(api_key=gemini_api_key)
-    
-    with open("google_key.json", "w") as f:
-        f.write(google_json_str)
-    json_path = "google_key.json"
+
 except Exception as e:
-    st.error("⚠️ 設定エラー: Secretsの設定を確認してください。")
+    st.error(f"⚠️ 設定エラー: Secretsの設定を確認してください。\n詳細: {e}")
     st.stop()
 
 # --- 関数群 ---
@@ -36,19 +42,22 @@ def analyze_audio(source_path):
     音声または動画ファイルを受け取り、MP3に変換して認識・分析を行う
     """
     try:
-        credentials = service_account.Credentials.from_service_account_file(json_path)
+        # 辞書から直接認証情報を作成（ファイル保存不要）
+        credentials = service_account.Credentials.from_service_account_info(google_creds_dict)
         client = speech.SpeechClient(credentials=credentials)
     except Exception as e:
         return {"error": f"認証エラー: {e}"}
 
+    # FFmpegで変換
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_converted:
         converted_path = tmp_converted.name
     
+    # 外部コマンド実行 (ffmpeg)
     cmd = f'ffmpeg -y -i "{source_path}" -vn -ac 1 -ar 16000 -ab 32k "{converted_path}" -loglevel panic'
     exit_code = os.system(cmd)
     
     if exit_code != 0:
-        return {"error": "ファイル変換エラー"}
+        return {"error": "ファイル変換エラー (FFmpegがインストールされていない可能性があります)"}
 
     with io.open(converted_path, "rb") as f:
         content = f.read()
@@ -110,21 +119,13 @@ def analyze_audio(source_path):
 
 def ask_gemini(student_name, nationality, text, alts, details):
     try:
-        available_models = []
+        # モデル選択ロジック
+        target_model = "gemini-1.5-flash" # デフォルト
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-        
-        if not available_models:
-            return "❌ エラー: 利用可能なGeminiモデルが見つかりません。"
-
-        target_model = available_models[0]
-        for m in available_models:
-            if "gemini-1.5-flash" in m:
-                target_model = m
-                break
-            elif "gemini-pro" in m:
-                target_model = m
+                if "gemini-1.5-flash" in m.name:
+                    target_model = m.name
+                    break
         
         model = genai.GenerativeModel(target_model)
         
@@ -135,7 +136,6 @@ def ask_gemini(student_name, nationality, text, alts, details):
         else:
             nat_instruction = "母語情報は不明です。一般的な誤用分析を行ってください。"
 
-        # ★修正: 図解生成指示を削除し、テーブル比較を重点的に行うよう指示
         prompt = f"""
         あなたは日本語音声学・対照言語学・日本語教育の高度な専門家です。
         以下の音声認識データに基づき、教師が指導に活用するための詳細な「音声評価」を作成してください。
@@ -153,7 +153,8 @@ def ask_gemini(student_name, nationality, text, alts, details):
         音声認識AIの自動補正を考慮し、信頼度(⚠️)が低い箇所は「発音ミス」として厳しく分析してください。
 
         【出力形式（厳守）】
-        レポートの冒頭に、以下の「総合評価サマリー」を出力してください。
+        レポートの冒頭に、以下の「総合評価サマリー」を必ずこの形式で出力してください。
+        （システムが数値を自動抽出するために必要です）
 
         ### 【総合評価サマリー】
         * **総合音声スコア**： [0~100] / 100
@@ -175,18 +176,17 @@ def ask_gemini(student_name, nationality, text, alts, details):
         ---
 
         ### 【調音点・調音法の詳細比較分析】
-        最も大きな誤用が見られた音（例: /s/ vs /t/ や /r/ vs /d/ など）を1つ選び、
-        日本語教育能力検定試験の観点（調音点・調音法・鼻音性）から比較解説してください。
+        最も大きな誤用が見られた音を1つ選び、日本語教育能力検定試験の観点（調音点・調音法・鼻音性）から比較解説してください。
 
         **比較テーブル**
         | 項目 | 正しい日本語の発音 | 学習者の誤った発音 |
         | :--- | :--- | :--- |
-        | **鼻への通路** | [開いている/閉じている] | [開いている/閉じている] |
-        | **調音点(舌の接触点)** | [両唇/歯茎/硬口蓋/軟口蓋] | [どこに接触/接近しているか] |
-        | **調音法** | [破裂/摩擦/破擦/鼻音/弾き] | [どう変化してしまったか] |
+        | **鼻への通路** | [開/閉] | [開/閉] |
+        | **調音点** | [両唇/歯茎/硬口蓋/軟口蓋] | [接触点] |
+        | **調音法** | [破裂/摩擦/破擦/鼻音/弾き] | [変化] |
 
         **指導アドバイス**
-        上記のズレを修正するために、教師が学習者にどのような身体的指示（例：「舌先をもっと前に」「息を鼻に抜かないで」）を出せばよいか、具体的に記述してください。
+        上記のズレを修正するための具体的指示。
         
         最後に「最優先指導計画」を提案してください。
         """
@@ -196,17 +196,78 @@ def ask_gemini(student_name, nationality, text, alts, details):
     except Exception as e:
         return f"❌ 予期せぬエラー: {e}"
 
-# --- 画像検索リンク生成関数 ---
+# --- スプレッドシート連携用関数 ---
+
+def parse_summary(report_text):
+    """Geminiのレポートから数値を抽出する"""
+    score_match = re.search(r'\*\*総合音声スコア\*\*：\s*(\d+)', report_text)
+    clarity_match = re.search(r'\*\*明瞭度\*\*：\s*([SABC])', report_text)
+    natural_match = re.search(r'\*\*日本語らしさ\*\*：\s*([SABC])', report_text)
+    
+    # サマリー全文を取得
+    summary_block = "サマリー抽出失敗"
+    try:
+        start = report_text.find("### 【総合評価サマリー】")
+        end = report_text.find("---", start)
+        if start != -1 and end != -1:
+            summary_block = report_text[start:end].strip()
+    except:
+        pass
+    
+    return {
+        "score": score_match.group(1) if score_match else "0",
+        "clarity": clarity_match.group(1) if clarity_match else "-",
+        "naturalness": natural_match.group(1) if natural_match else "-",
+        "summary_text": summary_block
+    }
+
+def save_to_sheet(data_dict):
+    """スプレッドシートに行を追加する"""
+    try:
+        # スコープ定義
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        # 認証
+        creds = service_account.Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        
+        # シートを開く
+        sheet_url = st.secrets.get("SHEET_URL")
+        sheet_key = st.secrets.get("SHEET_KEY")
+        
+        if sheet_url:
+            sheet = client.open_by_url(sheet_url).sheet1
+        elif sheet_key:
+            sheet = client.open_by_key(sheet_key).sheet1
+        else:
+            return False, "Secretsに SHEET_URL または SHEET_KEY が設定されていません。"
+        
+        # 行データの作成
+        row = [
+            data_dict["date"],
+            data_dict["name"],
+            data_dict["nationality"],
+            data_dict["score"],
+            data_dict["clarity"],
+            data_dict["naturalness"],
+            data_dict["summary_text"]
+        ]
+        
+        sheet.append_row(row)
+        return True, "成功"
+    except Exception as e:
+        return False, str(e)
+
+# --- リンク・UI生成用関数 ---
+
 def create_search_button(error_sound):
-    """
-    指定された音の口腔断面図を検索するボタンを表示
-    """
-    # 汎用的な検索クエリ
     query = f"日本語 {error_sound} 発音 口腔断面図 イラスト"
     url = f"https://www.google.com/search?q={query}&tbm=isch"
     st.link_button(f"🔍 「{error_sound}」の断面図を検索", url)
 
-# --- HTML生成用関数 ---
 def render_sticky_player_and_buttons(audio_content, word_data):
     b64_audio = base64.b64encode(audio_content).decode()
     buttons_html = ""
@@ -294,6 +355,7 @@ with tab2:
 if st.button("🚀 音声評価を開始する", type="primary"):
     if target_file:
         with st.spinner('🎧 動画・音声から分析データを抽出中...'):
+            # ファイル処理
             file_bytes = target_file.getvalue()
             suffix = ".mp4" if file_type == "video" else ".mp3"
             
@@ -301,6 +363,7 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 tmp_source.write(file_bytes)
                 tmp_source_path = tmp_source.name
             
+            # 1. 音声認識実行
             res = analyze_audio(tmp_source_path)
             
             if "error" in res:
@@ -308,6 +371,7 @@ if st.button("🚀 音声評価を開始する", type="primary"):
             else:
                 st.success("解析完了")
 
+                # プレーヤーとテキスト表示
                 st.subheader("🗣️ 音声認識・再生パネル")
                 render_sticky_player_and_buttons(res["audio_content"], res["word_data"])
                 
@@ -322,6 +386,7 @@ if st.button("🚀 音声評価を開始する", type="primary"):
 
                 st.markdown("---")
                 
+                # 2. Gemini評価実行
                 title_suffix = f" ({nationality})" if nationality else ""
                 name_display = student_name if student_name else "学習者"
                 
@@ -329,8 +394,10 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 
                 report_content = ask_gemini(student_name, nationality, res["main_text"], res["alts"], res["details"])
                 
-                # SVG表示ロジックを削除し、純粋なテキストレポートのみ表示
-                # 検索ボタンは残す
+                # レポート表示
+                st.markdown(report_content)
+                
+                # 検索ボタン群
                 st.markdown("##### 📚 外部資料リンク")
                 st.caption("詳細な口腔断面図が必要な場合は、以下から検索してください。")
                 col_s1, col_s2, col_s3 = st.columns(3)
@@ -338,18 +405,39 @@ if st.button("🚀 音声評価を開始する", type="primary"):
                 with col_s2: create_search_button("タ行 (t/ts)")
                 with col_s3: create_search_button("ラ行 (r/l)")
 
-                st.markdown(report_content)
+                # --- スプレッドシートへの自動保存 ---
+                parsed_data = parse_summary(report_content)
                 
+                if parsed_data["score"] != "0": # スコア取得成功時のみ
+                    with st.spinner("💾 スプレッドシートに記録中..."):
+                        save_data = {
+                            "date": datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
+                            "name": name_display,
+                            "nationality": nationality if nationality else "不明",
+                            "score": parsed_data["score"],
+                            "clarity": parsed_data["clarity"],
+                            "naturalness": parsed_data["naturalness"],
+                            "summary_text": parsed_data["summary_text"]
+                        }
+                        
+                        success, msg = save_to_sheet(save_data)
+                        if success:
+                            st.toast("✅ 学習記録を保存しました", icon="💾")
+                        else:
+                            st.warning(f"⚠️ スプレッドシートへの保存に失敗しました: {msg}")
+                else:
+                    st.warning("⚠️ 評価スコアの自動抽出に失敗したため、記録はスキップされました。")
+
+                # ダウンロードボタン
                 today_str = datetime.datetime.now().strftime('%Y-%m-%d')
                 safe_name = student_name if student_name else "student"
-                safe_nat = nationality if nationality else "unknown"
                 
                 download_text = f"""================================
 日本語音声評価レポート
 ================================
 ■ 実施日: {today_str}
 ■ 学習者: {safe_name}
-■ 母語・国籍: {safe_nat}
+■ 母語・国籍: {nationality}
 
 【音声認識結果】
 {res['main_text']}
