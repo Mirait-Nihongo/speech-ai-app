@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v5.6", 
+    page_title="日本語音声 指導補助ツール v5.7", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -200,10 +200,10 @@ def ask_gemini(student_name, nationality, text, alts, details):
 
 【出力形式（厳守）】
 レポートの冒頭に以下のサマリーを必ず含めてください。
-（システムが数値を自動抽出するため、記号などを変えないでください）
+**注意：自動抽出のため、項目の形式を変えないでください。**
 
 ### 【総合評価サマリー】
-* **総合音声スコア**： [0~100の数値] / 100
+* **総合音声スコア**： [0~100の数値]
 * **明瞭度**： [S/A/B/C]
 * **日本語らしさ**： [S/A/B/C]
 * **要重点指導音**： [具体的な音素]
@@ -228,24 +228,29 @@ def ask_gemini(student_name, nationality, text, alts, details):
 
 def parse_summary(report_text):
     """
-    レポートからサマリー情報を抽出する（改良版：表記ゆれに強くしました）
+    レポートからサマリー情報を抽出する（強化版：表記ゆれ対応）
     """
-    # 抽出を容易にするため、**などの装飾記号を削除
-    clean_text = report_text.replace("**", "").replace("：", ":")
+    # 抽出を容易にするため、記号を統一
+    clean_text = report_text.replace("**", "")  # 太字記号削除
+    clean_text = clean_text.replace("：", ":")  # コロン統一
+    clean_text = clean_text.replace(" ", "")    # スペース削除
     
-    # 柔軟な正規表現で抽出
-    # "総合音声スコア"の後ろにある数字を探す
-    score_match = re.search(r'総合音声スコア.*?:.*?(\d{1,3})', clean_text)
+    # 正規表現で抽出（より柔軟に）
+    # "スコア"の後ろにある数字 (0-100) を探す
+    score_match = re.search(r'スコア.*?:.*?(\d{1,3})', clean_text)
     
-    # "明瞭度"の後ろにあるアルファベットを探す
+    # "明瞭度"の後ろにある S,A,B,C を探す
     clarity_match = re.search(r'明瞭度.*?:.*?([SABC])', clean_text, re.IGNORECASE)
     
-    # "日本語らしさ"の後ろにあるアルファベットを探す
+    # "日本語らしさ"の後ろにある S,A,B,C を探す
     natural_match = re.search(r'日本語らしさ.*?:.*?([SABC])', clean_text, re.IGNORECASE)
     
+    # サマリー本文の抽出
     summary_block = "サマリー抽出失敗"
     try:
         start = report_text.find("### 【総合評価サマリー】")
+        if start == -1: start = report_text.find("【総合評価サマリー】")
+        
         end = report_text.find("---", start)
         if start != -1 and end != -1:
             summary_block = report_text[start:end].strip()
@@ -515,7 +520,9 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
                         else:
                             st.warning(f"⚠️ 保存失敗: {msg}")
                 else:
-                     st.warning("⚠️ スコアの自動抽出に失敗しましたが、レポートは正常に生成されています。")
+                    # 失敗した場合でも、なぜ失敗したか（どんなテキストを拾おうとしたか）を表示
+                    st.warning("⚠️ スコアの自動抽出に失敗しましたが、レポートは正常に生成されています。")
+                    st.write("抽出デバッグ用（開発者向け）:", parsed)
 
                 # ダウンロードボタン
                 st.markdown("---")
@@ -534,7 +541,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v5.6
+生成元: 日本語音声指導補助ツール v5.7
 """
                 
                 st.download_button(
@@ -547,4 +554,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v5.6 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v5.7 | Powered by Google Cloud Speech-to-Text & Gemini AI")
