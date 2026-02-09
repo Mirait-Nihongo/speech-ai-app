@@ -136,12 +136,12 @@ def analyze_audio(source_path):
     }
 
 def ask_gemini(student_name, nationality, text, alts, details):
-    # ★修正: 診断リストにあった「実際に使えるモデル」を指定します
+    # ★修正完了: あなたの環境で実際に使えるモデル名(診断リスト準拠)に変更しました
     target_models = [
-        "gemini-2.0-flash",       # リストにあった最新の高速モデル
-        "gemini-2.0-flash-lite",  # 軽量版
-        "gemini-flash-latest",    # 最新版エイリアス
-        "gemini-pro-latest"       # 最新版Pro
+        "gemini-2.0-flash",       # 最新・高速 (リストに存在)
+        "gemini-2.5-flash",       # さらに新しいモデル (リストに存在)
+        "gemini-flash-latest",    # 最新版エイリアス (リストに存在)
+        "gemini-pro-latest"       # Pro版最新 (リストに存在)
     ]
     
     model = None
