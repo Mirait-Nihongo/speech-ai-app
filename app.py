@@ -14,7 +14,7 @@ import streamlit.components.v1 as components
 
 # --- 設定 ---
 st.set_page_config(
-    page_title="日本語音声 指導補助ツール v6.0", 
+    page_title="日本語音声 指導補助ツール v6.1", 
     page_icon="👨‍🏫", 
     layout="centered"
 )
@@ -195,8 +195,10 @@ def ask_gemini(student_name, nationality, text, alts, details):
 詳細スコア: {details}
 
 【重要指示】
-- 信頼度が低い箇所（⚠️マーク）を発音ミスとして分析
-- 母語の音韻体系との対照分析を実施
+- 信頼度が低い箇所（⚠️マーク）を発音ミスとして分析してください。
+- 母語の音韻体系との対照分析を実施してください。
+- **音声記号を使う際は、必ず対応する「ひらがな・カタカナ」や一般的な表記を併記してください。**
+  - 例: /tsɯ/ (つ), /ɕ/ (し), /ɾ/ (ら行), 長音 (ー)
 
 【出力形式（厳守）】
 レポートの冒頭に以下のサマリーを必ず含めてください。
@@ -206,7 +208,7 @@ def ask_gemini(student_name, nationality, text, alts, details):
 * **総合音声スコア**： [0~100の数値]
 * **明瞭度**： [S/A/B/C]
 * **日本語らしさ**： [S/A/B/C]
-* **要重点指導音**： [具体的な音素]
+* **要重点指導音**： [具体的な音素と対応するひらがな]
 
 ---
 
@@ -540,7 +542,7 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 {report}
 
 ---
-生成元: 日本語音声指導補助ツール v6.0
+生成元: 日本語音声指導補助ツール v6.1
 """
                 
                 st.download_button(
@@ -553,4 +555,4 @@ if st.button("🚀 音声評価を開始する", type="primary", use_container_w
 
 # フッター
 st.markdown("---")
-st.caption("👨‍🏫 日本語音声指導補助ツール v6.0 | Powered by Google Cloud Speech-to-Text & Gemini AI")
+st.caption("👨‍🏫 日本語音声指導補助ツール v6.1 | Powered by Google Cloud Speech-to-Text & Gemini AI")
